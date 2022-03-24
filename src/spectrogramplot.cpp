@@ -171,7 +171,7 @@ void SpectrogramPlot::paintAnnotations(QPainter &painter, QRect &rect, range_t<s
     QFontMetrics fm(painter.font());
 
     for (int i = 0; i < inputSource->annotationList.size(); i++) {
-        Annotation a = inputSource->annotationList.at(i);
+        sigmfAnnotation a = inputSource->annotationList.at(i);
 
         size_t descriptionLength = fm.boundingRect(a.description).width() * getStride();
 

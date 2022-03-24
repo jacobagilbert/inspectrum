@@ -27,7 +27,7 @@
 #include <QString>
 #include <QObject>
 
-class Annotation
+class sigmfAnnotation
 {
 public:
     range_t<size_t> sampleRange;
@@ -49,7 +49,7 @@ public:
     virtual size_t count() = 0;
     virtual double rate() = 0;
     virtual float relativeBandwidth() = 0;
-    QList<Annotation> annotationList;
+    QList<sigmfAnnotation> annotationList;
     std::type_index sampleType() override;
     virtual bool realSignal() { return false; };
     double getFrequency();

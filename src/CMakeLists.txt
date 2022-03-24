@@ -25,7 +25,7 @@ if (NOT CMAKE_CXX_FLAGS)
 endif (NOT CMAKE_CXX_FLAGS)
 
 # This only works in cmake >3.1
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 
 list(APPEND inspectrum_sources 
     abstractsamplesource.cpp
@@ -72,11 +72,14 @@ target_link_libraries(inspectrum
 )
 
 if (libsigmf_FOUND)
-    message("-- libsigmf found. Enabling SigMF support")
+    message("-- libsigmf found (version ${libsigmf_VERSION}). Enabling SigMF support")
     target_link_libraries(inspectrum
         libsigmf::libsigmf
     )
     add_definitions(-DENABLE_SIGMF)
+    if (${libsigmf_VERSION_MAJOR} LESS 1)
+        add_definitions(-DSIGMF_V0)
+    endif()
 else()
     message("-- libsigmf not found. Disabling SigMF support")
 endif()

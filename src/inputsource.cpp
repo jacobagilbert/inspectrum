@@ -31,6 +31,7 @@
 
 #if ENABLE_SIGMF
 #include <sigmf/sigmf.h>
+using namespace sigmf;
 #endif
 
 #include <QElapsedTimer>
@@ -234,22 +235,43 @@ void InputSource::readMetaData(const QString &filename)
         throw std::runtime_error("SigMF meta data specifies unsupported datatype");
     }
 
+#if SIGMF_V0 // uses flatbuffers 1.12 and does not support std::optional scalars
     setSampleRate(global_core.sample_rate);
-
     for(auto capture : metaData.captures) {
         auto core = capture.access<core::CaptureT>();
         frequency = core.frequency;
     }
 
     for(auto annotation : metaData.annotations) {
-        Annotation a;
+        sigmfAnnotation a;
         auto core = annotation.access<core::AnnotationT>();
-
         a.sampleRange = range_t<size_t>{core.sample_start, core.sample_start + core.sample_count - 1};
         a.frequencyRange = range_t<double>{core.freq_lower_edge, core.freq_upper_edge};
         a.description = QString::fromStdString(core.description);
 
         annotationList.append(a);
+    }
+#else // uses flatbuffers 2.0 and all scalars are std::optional
+    setSampleRate(global_core.sample_rate.value_or(0));
+    for(auto capture : metaData.captures) {
+        auto core = capture.access<core::CaptureT>();
+        frequency = core.frequency.value_or(0);
+    }
+
+    for(auto annotation : metaData.annotations) {
+        sigmfAnnotation a;
+        auto core = annotation.access<core::AnnotationT>();
+        if (core.sample_start && core.freq_lower_edge && core.freq_upper_edge) {
+            if (core.sample_count) {
+                a.sampleRange = range_t<size_t>{*core.sample_start, *core.sample_start + *core.sample_count - 1};
+            } else {
+                a.sampleRange = range_t<size_t>{*core.sample_start, *core.sample_start};
+            }
+            a.frequencyRange = range_t<double>{*core.freq_lower_edge, *core.freq_upper_edge};
+            a.description = QString::fromStdString(core.description);
+            annotationList.append(a);
+        }
+#endif
     }
 }
 #endif
