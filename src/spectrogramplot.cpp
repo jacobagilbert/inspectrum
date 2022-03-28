@@ -43,6 +43,7 @@ SpectrogramPlot::SpectrogramPlot(std::shared_ptr<SampleSource<std::complex<float
     sampleRate = 0;
     frequencyScaleEnabled = false;
     sigmfAnnotationsEnabled = true;
+    sigmfAnnotationColors = true;
 
     for (int i = 0; i < 256; i++) {
         float p = (float)i / 256;
@@ -196,6 +197,10 @@ void SpectrogramPlot::paintAnnotations(QPainter &painter, QRect &rect, range_t<s
             int y = zero - frequency / sampleRate * rect.height();
             int height = (a.frequencyRange.maximum - a.frequencyRange.minimum) / sampleRate * rect.height();
             int width = (a.sampleRange.maximum - a.sampleRange.minimum) / getStride();
+
+            if (sigmfAnnotationColors) {
+                painter.setPen(a.boxColor);
+            }
 
             // Draw the label 2 pixels above the box
             painter.drawText(x, y - 2, a.label);
@@ -435,6 +440,11 @@ void SpectrogramPlot::enableAnnotations(bool enabled)
 bool SpectrogramPlot::isAnnotationsEnabled(void)
 {
     return sigmfAnnotationsEnabled;
+}
+
+void SpectrogramPlot::enableAnnoColors(bool enabled)
+{
+    sigmfAnnotationColors = enabled;
 }
 
 bool SpectrogramPlot::tunerEnabled()

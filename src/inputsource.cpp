@@ -38,6 +38,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QFile>
+#include <QColor>
 
 
 class ComplexF32SampleAdapter : public SampleAdapter {
@@ -345,7 +346,17 @@ QJsonObject InputSource::readMetaData(const QString &filename)
 
                 auto comment = sigmf_annotation["core:comment"].toString();
 
-                annotationList.emplace_back(sampleRange, frequencyRange, label, comment);
+                auto sigmf_color = sigmf_annotation["presentation:color"].toString();
+                // SigMF uses the format "#RRGGBBAA" for alpha-channel colors, QT uses "#AARRGGBB"
+                if ((sigmf_color.at(0) == '#') && (sigmf_color.length()) == 9) {
+                    sigmf_color = "#" + sigmf_color.mid(7,2) + sigmf_color.mid(1,6);
+                }
+                auto boxColor = QString::fromStdString("white");
+                if (QColor::isValidColor(sigmf_color)) {
+                    boxColor = sigmf_color;
+                }
+
+                annotationList.emplace_back(sampleRange, frequencyRange, label, comment, boxColor);
             }
         }
     }
