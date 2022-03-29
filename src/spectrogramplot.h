@@ -77,6 +77,7 @@ public:
     bool tunerEnabled();
     void enableScales(bool enabled);
     void enableAnnotations(bool enabled);
+    void enableAnnoLabels(bool enabled);
     bool isAnnotationsEnabled();
     void enableAnnoColors(bool enabled);
     QString *mouseAnnotationComment(const QMouseEvent *event);
@@ -109,6 +110,7 @@ private:
     double sampleRate;
     bool frequencyScaleEnabled;
     bool sigmfAnnotationsEnabled;
+    bool sigmfAnnotationLabels;
     bool sigmfAnnotationColors;
 
     Tuner tuner;

@@ -75,6 +75,7 @@ public:
     QLabel *symbolPeriodLabel;
     QCheckBox *scalesCheckBox;
     QCheckBox *annosCheckBox;
+    QCheckBox *annoLabelCheckBox;
     QCheckBox *commentsCheckBox;
     QCheckBox *annoColorCheckBox;
 };
