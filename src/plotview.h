@@ -47,6 +47,7 @@ public slots:
     void enableCursors(bool enabled);
     void enableScales(bool enabled);
     void enableAnnotations(bool enabled);
+    void enableAnnoLabels(bool enabled);
     void enableAnnotationCommentsTooltips(bool enabled);
     void enableAnnoColors(bool enabled);
     void invalidateEvent() override;

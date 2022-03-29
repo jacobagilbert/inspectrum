@@ -51,9 +51,9 @@ PlotView::PlotView(InputSource *input) : cursors(this), viewRange({0, 0})
     enableScales(true);
 
     enableAnnotations(true);
-    enableAnnotationCommentsTooltips(true);
-
+    enableAnnoLabels(true);
     enableAnnoColors(true);
+    enableAnnotationCommentsTooltips(true);
 
     addPlot(spectrogramPlot);
 
@@ -645,6 +645,14 @@ void PlotView::enableAnnotations(bool enabled)
 {
     if (spectrogramPlot != nullptr)
         spectrogramPlot->enableAnnotations(enabled);
+
+    viewport()->update();
+}
+
+void PlotView::enableAnnoLabels(bool enabled)
+{
+    if (spectrogramPlot != nullptr)
+        spectrogramPlot->enableAnnoLabels(enabled);
 
     viewport()->update();
 }
