@@ -224,7 +224,7 @@ bool PlotView::viewportEvent(QEvent *event) {
         QWheelEvent *wheelEvent = (QWheelEvent*)event;
         if (QApplication::keyboardModifiers() & Qt::ControlModifier) {
             bool canZoomIn = zoomLevel < fftSize;
-            bool canZoomOut = zoomLevel > 1;
+            bool canZoomOut = zoomLevel > -6;
             int delta = wheelEvent->angleDelta().y();
             if ((delta > 0 && canZoomIn) || (delta < 0 && canZoomOut)) {
                 scrollZoomStepsAccumulated += delta;
