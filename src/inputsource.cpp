@@ -265,7 +265,9 @@ void InputSource::readMetaData(const QString &filename)
 
 
     auto datatype = global["core:datatype"].toString();
-    if (datatype.compare("cf32_le") == 0) {
+    if (datatype.compare("cf64_le") == 0) {
+        sampleAdapter = std::make_unique<ComplexF64SampleAdapter>();
+    } else if (datatype.compare("cf32_le") == 0) {
         sampleAdapter = std::make_unique<ComplexF32SampleAdapter>();
     } else if (datatype.compare("ci32_le") == 0) {
         sampleAdapter = std::make_unique<ComplexS32SampleAdapter>();
