@@ -345,7 +345,7 @@ void InputSource::readMetaData(const QString &filename)
                 if (label.isEmpty()) {
                     label = sigmf_annotation["core:description"].toString();
                 }
-                
+
                 auto comment = sigmf_annotation["core:comment"].toString();
 
                 auto sigmf_color = sigmf_annotation["presentation:color"].toString();
