@@ -28,7 +28,7 @@
 
 MainWindow::MainWindow()
 {
-    setWindowTitle(tr("inspectrum"));
+    setWindowTitle(tr("inspectrum - jacobagilbert edition"));
 
     QPixmapCache::setCacheLimit(40960);
 
