@@ -28,7 +28,7 @@
 
 MainWindow::MainWindow()
 {
-    setWindowTitle(tr("inspectrum"));
+    setWindowTitle(tr("inspectrum - jacobagilbert edition"));
 
     QPixmapCache::setCacheLimit(40960);
 
@@ -69,7 +69,7 @@ MainWindow::MainWindow()
 
 void MainWindow::openFile(QString fileName)
 {
-    QString title="%1: %2";
+    QString title="%1 jacobagilbert edition: %2";
     this->setWindowTitle(title.arg(QApplication::applicationName(),fileName.section('/',-1,-1)));
 
     // Try to parse osmocom_fft filenames and extract the sample rate and center frequency.
