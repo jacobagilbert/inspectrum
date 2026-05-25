@@ -67,6 +67,8 @@ void SpectrogramPlot::invalidateEvent()
 
 void SpectrogramPlot::paintFront(QPainter &painter, QRect &rect, range_t<size_t> sampleRange)
 {
+    paintDecimationOverlay(painter, rect);
+
     if (tunerEnabled())
         tuner.paintFront(painter, rect, sampleRange);
 
@@ -215,6 +217,53 @@ void SpectrogramPlot::paintAnnotations(QPainter &painter, QRect &rect, range_t<s
     painter.restore();
 }
 
+void SpectrogramPlot::paintDecimationOverlay(QPainter &painter, QRect &rect)
+{
+    // While the export dialog is open, dim the bandwidth that decimation will
+    // discard so the user can see what will actually be saved. A decimation of
+    // N retains Fs/N of bandwidth, i.e. height()/N pixels of the plot.
+    if (decimationPreview <= 1)
+        return;
+
+    const int N = decimationPreview;
+    const int top = rect.y();
+    const int h = rect.height();
+
+    int keptTop, keptBottom;
+    if (inputSource->realSignal()) {
+        // Real signal: decimation lowpasses to [0, Fs/2N], the strip at DC (bottom).
+        keptBottom = top + h;
+        keptTop = top + h - h / N;
+    } else {
+        // Complex: Fs/N of bandwidth centred on the absolute frequency offset
+        // (relative to DC). Higher frequency is up the plot (smaller y).
+        int centre = h / 2;
+        if (sampleRate > 0)
+            centre -= (int)(decimationOffset * h / sampleRate);
+        const int half = std::max(1, h / (2 * N));  // keep a visible sliver at extreme decimation
+        keptTop = top + centre - half;
+        keptBottom = top + centre + half;
+    }
+
+    keptTop = clamp(keptTop, top, top + h);
+    keptBottom = clamp(keptBottom, top, top + h);
+
+    painter.save();
+    QColor dim(0, 0, 0, 140);
+    if (keptTop > top)
+        painter.fillRect(QRect(rect.left(), top, rect.width(), keptTop - top), dim);
+    if (keptBottom < top + h)
+        painter.fillRect(QRect(rect.left(), keptBottom, rect.width(), (top + h) - keptBottom), dim);
+    painter.restore();
+}
+
+void SpectrogramPlot::setDecimationPreview(int decimation, double frequencyOffset)
+{
+    decimationPreview = decimation;
+    decimationOffset = frequencyOffset;
+    emit repaint();
+}
+
 QString *SpectrogramPlot::mouseAnnotationComment(const QMouseEvent *event) {
     auto pos = event->pos();
     int mouse_x = pos.x();
@@ -339,6 +388,26 @@ float SpectrogramPlot::getTunerPhaseInc()
 {
     auto freq = 0.5f - tuner.centre() / (float)fftSize;
     return freq * Tau;
+}
+
+double SpectrogramPlot::getCenterFrequency()
+{
+    // Absolute centre frequency of the tuner's output: the recording's centre
+    // frequency plus the offset the tuner mixes down to baseband.
+    return inputSource->getFrequency() + getTunerPhaseInc() / Tau * sampleRate;
+}
+
+double SpectrogramPlot::getTunerOffsetFrequency()
+{
+    // Frequency of the tuner (frequency-filter) centre relative to the
+    // recording's centre frequency.
+    return getTunerPhaseInc() / Tau * sampleRate;
+}
+
+double SpectrogramPlot::getTunerRelativeBandwidth()
+{
+    // Tuner passband width as a fraction of the full sample rate.
+    return tuner.deviation() * 2.0 / height();
 }
 
 std::vector<float> SpectrogramPlot::getTunerTaps()

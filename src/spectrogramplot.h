@@ -73,6 +73,10 @@ public:
     bool mouseEvent(QEvent::Type type, QMouseEvent *event) override;
     void leaveEvent();
     std::shared_ptr<SampleSource<std::complex<float>>> input() { return inputSource; };
+    double getCenterFrequency();
+    double getTunerOffsetFrequency();
+    double getTunerRelativeBandwidth();
+    void setDecimationPreview(int decimation, double frequencyOffset = 0);
     void setSampleRate(double sampleRate);
     bool tunerEnabled();
     void enableScales(bool enabled);
@@ -105,6 +109,8 @@ private:
     int fftSize;
     int zoomLevel;
     int nfftSkip;
+    int decimationPreview = 0;
+    double decimationOffset = 0;
     float powerMax;
     float powerMin;
     double sampleRate;
@@ -125,6 +131,7 @@ private:
     int linesPerTile();
     void paintFrequencyScale(QPainter &painter, QRect &rect);
     void paintAnnotations(QPainter &painter, QRect &rect, range_t<size_t> sampleRange);
+    void paintDecimationOverlay(QPainter &painter, QRect &rect);
 };
 
 class AnnotationLocation

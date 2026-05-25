@@ -18,24 +18,81 @@
  */
 
 #include "plotview.h"
+#include <cmath>
 #include <iostream>
 #include <fstream>
+#include <limits>
 #include <QtGlobal>
 #include <QApplication>
+#include <QCheckBox>
 #include <QClipboard>
 #include <QDebug>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QGridLayout>
 #include <QGroupBox>
+#include <QHBoxLayout>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QLabel>
 #include <QMenu>
+#include <QMessageBox>
 #include <QPainter>
 #include <QProgressDialog>
+#include <QPushButton>
 #include <QRadioButton>
 #include <QScrollBar>
+#include <QSizePolicy>
 #include <QSpinBox>
 #include <QToolTip>
 #include <QVBoxLayout>
 #include "plots.h"
+#include "util.h"
+
+// Convert a normalised float sample (~[-1, 1]) to a signed 16-bit value.
+static inline int16_t floatToS16(float v)
+{
+    return (int16_t)clamp((int32_t)lrintf(v * 32768.0f), -32768, 32767);
+}
+
+// Write a single output sample. Overloaded so the export template compiles for
+// both complex<float> and float sources; sc16 only applies to complex sources.
+static inline void writeSample(std::ofstream &os, const std::complex<float> &v, bool sc16)
+{
+    if (sc16) {
+        int16_t iq[2] = { floatToS16(v.real()), floatToS16(v.imag()) };
+        os.write(reinterpret_cast<const char*>(iq), sizeof(iq));
+    } else {
+        os.write(reinterpret_cast<const char*>(&v), sizeof(v));
+    }
+}
+
+static inline void writeSample(std::ofstream &os, const float &v, bool /*sc16*/)
+{
+    os.write(reinterpret_cast<const char*>(&v), sizeof(v));
+}
+
+// Apply a frequency-shift mix (e^{j*phase}) to a sample. Overloaded so the
+// export template compiles for float sources, where shifting doesn't apply.
+static inline std::complex<float> mixSample(const std::complex<float> &v, double phase)
+{
+    return v * std::complex<float>((float)std::cos(phase), (float)std::sin(phase));
+}
+
+static inline float mixSample(const float &v, double /*phase*/)
+{
+    return v;
+}
+
+// Round to a given number of significant figures.
+static double roundToSigFigs(double v, int figs)
+{
+    if (v == 0.0)
+        return 0.0;
+    double mag = std::pow(10.0, figs - 1 - (int)std::floor(std::log10(std::fabs(v))));
+    return std::round(v * mag) / mag;
+}
 
 PlotView::PlotView(InputSource *input) : cursors(this), viewRange({0, 0})
 {
@@ -349,49 +406,164 @@ void PlotView::exportSamples(std::shared_ptr<AbstractSampleSource> src)
         return;
     }
 
+    const bool isComplex = std::is_same<SOURCETYPE, std::complex<float>>::value;
+
+    // The frequency offset field is absolute (relative to the recording centre /
+    // spectrogram DC). When exporting the tuner output, the tuner has already
+    // mixed its centre to DC, so we track that intrinsic offset and subtract it
+    // from the requested offset to avoid double-counting the shift.
+    double recordingCenter = sampleSrc->getFrequency();
+    double tunerIntrinsicOffset = 0;
+    if (spectrogramPlot != nullptr && src == spectrogramPlot->output()) {
+        tunerIntrinsicOffset = spectrogramPlot->getTunerOffsetFrequency();
+        recordingCenter = spectrogramPlot->getCenterFrequency() - tunerIntrinsicOffset;
+    }
+
     QFileDialog dialog(this);
     dialog.setAcceptMode(QFileDialog::AcceptSave);
     dialog.setFileMode(QFileDialog::AnyFile);
-    dialog.setNameFilter(getFileNameFilter<SOURCETYPE>());
+    // Format is chosen by the "Output Format" controls below; these filters only
+    // affect which existing files are listed. "All files" stays the default so no
+    // extension is forced onto the typed name.
+    dialog.setNameFilters({
+        "All files (*)",
+        "SigMF files (*.sigmf-meta *.sigmf-data)",
+        "All supported (*.fc32 *.sc16 *.sigmf-meta *.sigmf-data)"
+    });
     dialog.setOption(QFileDialog::DontUseNativeDialog, true);
 
-    QGroupBox groupBox("Selection To Export", &dialog);
-    QVBoxLayout vbox(&groupBox);
+    QGridLayout *l = dialog.findChild<QGridLayout*>();
 
-    QRadioButton cursorSelection("Cursor Selection", &groupBox);
-    QRadioButton currentView("Current View", &groupBox);
-    QRadioButton completeFile("Complete File (Experimental)", &groupBox);
-
+    // --- Selection to export ---
+    QGroupBox selectionBox("Selection to Export", &dialog);
+    QRadioButton cursorSelection("Cursor selection", &selectionBox);
+    QRadioButton currentView("Current view", &selectionBox);
+    QRadioButton completeFile("Complete file (experimental)", &selectionBox);
     if (cursorsEnabled) {
         cursorSelection.setChecked(true);
     } else {
         currentView.setChecked(true);
         cursorSelection.setEnabled(false);
     }
+    QVBoxLayout selectionLayout(&selectionBox);
+    selectionLayout.addWidget(&cursorSelection);
+    selectionLayout.addWidget(&currentView);
+    selectionLayout.addWidget(&completeFile);
+    selectionLayout.addStretch(1);
 
-    vbox.addWidget(&cursorSelection);
-    vbox.addWidget(&currentView);
-    vbox.addWidget(&completeFile);
-    vbox.addStretch(1);
+    // --- Output format (sc16 only offered for complex sources) ---
+    QGroupBox formatBox("Output Format", &dialog);
+    QRadioButton fmtNative(isComplex ? "Complex float32 (fc32)" : "Float32 (f32)", &formatBox);
+    QRadioButton fmtSc16("Complex int16 (sc16)", &formatBox);
+    fmtNative.setChecked(true);
+    QCheckBox sigmfCheck("Use SigMF format", &formatBox);
+    QVBoxLayout formatLayout(&formatBox);
+    formatLayout.addWidget(&fmtNative);
+    if (isComplex)
+        formatLayout.addWidget(&fmtSc16);
+    formatLayout.addWidget(&sigmfCheck);
+    formatLayout.addStretch(1);
 
-    groupBox.setLayout(&vbox);
+    // --- Resampling: decimation + frequency offset on one row ---
+    // The frequency offset shifts the exported band up/down before decimation.
+    // Disabled for real captures.
+    bool offsetEnabled = isComplex && !mainSampleSource->realSignal();
 
-    QGridLayout *l = dialog.findChild<QGridLayout*>();
-    l->addWidget(&groupBox, 4, 1);
+    QGroupBox resampleBox("Resampling", &dialog);
+    QLabel decimationLabel("Decimation:", &resampleBox);
+    QSpinBox decimation(&resampleBox);
+    decimation.setRange(1, std::numeric_limits<int>::max());
+    decimation.setValue(1);
+    decimation.setMaximumWidth(70);  // only needs 2-3 digits
 
-    QGroupBox groupBox2("Decimation");
-    QSpinBox decimation(&groupBox2);
-    decimation.setMinimum(1);
-    decimation.setValue(1 / sampleSrc->relativeBandwidth());
+    QLabel offsetLabel("Frequency offset (Hz):", &resampleBox);
+    QSpinBox frequencyOffset(&resampleBox);
+    int maxOffset = std::numeric_limits<int>::max();
+    if (sampleSrc->rate() > 0)
+        maxOffset = (int)std::min(sampleSrc->rate() / 2.0, (double)std::numeric_limits<int>::max());
+    frequencyOffset.setRange(-maxOffset, maxOffset);
+    frequencyOffset.setValue(0);
+    frequencyOffset.setMinimumWidth(160);  // holds large Hz values comfortably
+    frequencyOffset.setEnabled(offsetEnabled);
+    offsetLabel.setEnabled(offsetEnabled);
+    frequencyOffset.setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
-    QVBoxLayout vbox2;
-    vbox2.addWidget(&decimation);
+    // "Suggest" fills decimation + offset from the on-screen frequency filter
+    // (tuner): decimation from its width, offset from its centre (4 sig figs).
+    // Only available when a tuner is active on a complex source.
+    bool suggestEnabled = offsetEnabled && spectrogramPlot != nullptr
+                          && spectrogramPlot->tunerEnabled();
+    QPushButton suggestButton("Suggest", &resampleBox);
+    suggestButton.setEnabled(suggestEnabled);
+    if (suggestEnabled) {
+        connect(&suggestButton, &QPushButton::clicked, this, [&]() {
+            double relBW = spectrogramPlot->getTunerRelativeBandwidth();
+            if (relBW > 0)
+                decimation.setValue(std::max(1, (int)std::ceil(1.0 / relBW)));
+            frequencyOffset.setValue(
+                (int)roundToSigFigs(spectrogramPlot->getTunerOffsetFrequency(), 4));
+        });
+    }
 
-    groupBox2.setLayout(&vbox2);
-    l->addWidget(&groupBox2, 4, 2);
+    QHBoxLayout resampleLayout(&resampleBox);
+    resampleLayout.addWidget(&decimationLabel);
+    resampleLayout.addWidget(&decimation);
+    resampleLayout.addSpacing(20);
+    resampleLayout.addWidget(&offsetLabel);
+    resampleLayout.addWidget(&frequencyOffset, 1);
+    resampleLayout.addWidget(&suggestButton);
+
+    // Pack the option groups into their own grid spanning the full dialog width,
+    // so they fill the space evenly instead of leaving the bottom-right empty.
+    QGridLayout *optionsGrid = new QGridLayout();
+    optionsGrid->addWidget(&selectionBox, 0, 0);
+    optionsGrid->addWidget(&formatBox, 0, 1);
+    optionsGrid->addWidget(&resampleBox, 1, 0, 1, 2);
+    optionsGrid->setColumnStretch(0, 1);
+    optionsGrid->setColumnStretch(1, 1);
+    l->addLayout(optionsGrid, 4, 0, 1, l->columnCount());
+
+    // Live-preview the bandwidth that decimation/offset will keep on the
+    // spectrogram, but only when exporting the spectrogram's own samples.
+    bool showDecimationPreview = (spectrogramPlot != nullptr) &&
+        (src == spectrogramPlot->output() || src == spectrogramPlot->input());
+    if (showDecimationPreview) {
+        auto updatePreview = [this, &decimation, &frequencyOffset]() {
+            spectrogramPlot->setDecimationPreview(decimation.value(), frequencyOffset.value());
+        };
+        updatePreview();
+        connect(&decimation, QOverload<int>::of(&QSpinBox::valueChanged),
+                this, [updatePreview](int) { updatePreview(); });
+        connect(&frequencyOffset, QOverload<int>::of(&QSpinBox::valueChanged),
+                this, [updatePreview](int) { updatePreview(); });
+    }
 
     if (dialog.exec()) {
         QStringList fileNames = dialog.selectedFiles();
+
+        const bool sc16 = isComplex && fmtSc16.isChecked();
+        QString datatype, defaultExt;
+        if (!isComplex) {
+            datatype = "rf32_le"; defaultExt = ".f32";
+        } else if (sc16) {
+            datatype = "ci16_le"; defaultExt = ".sc16";
+        } else {
+            datatype = "cf32_le"; defaultExt = ".fc32";
+        }
+
+        // When writing SigMF, the dataset uses the .sigmf-data extension so it
+        // pairs with the .sigmf-meta sidecar; the radio still selects the binary
+        // encoding (recorded as core:datatype). Otherwise use the format's
+        // extension, appended only if the user didn't supply one.
+        QString outPath;
+        if (sigmfCheck.isChecked()) {
+            QFileInfo fi(fileNames[0]);
+            outPath = fi.path() + "/" + fi.completeBaseName() + ".sigmf-data";
+        } else {
+            outPath = fileNames[0];
+            if (QFileInfo(outPath).suffix().isEmpty())
+                outPath += defaultExt;
+        }
 
         size_t start, end;
         if (cursorSelection.isChecked()) {
@@ -405,7 +577,19 @@ void PlotView::exportSamples(std::shared_ptr<AbstractSampleSource> src)
             end = sampleSrc->count();
         }
 
-        std::ofstream os (fileNames[0].toStdString(), std::ios::binary);
+        std::ofstream os (outPath.toStdString(), std::ios::binary);
+
+        // The offset field is absolute; the data we read already sits at
+        // tunerIntrinsicOffset, so the mix needed is the difference. (For real
+        // captures the offset is disabled and the data is left where it is.)
+        // Skip the mix entirely when there's no shift so the common path stays a
+        // plain copy.
+        const double rate = sampleSrc->rate();
+        const double appliedOffset = offsetEnabled ? (double)frequencyOffset.value()
+                                                   : tunerIntrinsicOffset;
+        const double normOffset = (rate > 0) ? (appliedOffset - tunerIntrinsicOffset) / rate : 0.0;
+        const bool applyMix = (normOffset != 0.0);
+        const int decim = decimation.value();
 
         size_t index;
         // viewRange.length() is used as some less arbitrary step value
@@ -421,12 +605,79 @@ void PlotView::exportSamples(std::shared_ptr<AbstractSampleSource> src)
             size_t length = std::min(step, end - index);
             auto samples = sampleSrc->getSamples(index, length);
             if (samples != nullptr) {
-                for (auto i = 0; i < length; i += decimation.value()) {
-                    os.write((const char*)&samples[i], sizeof(SOURCETYPE));
+                for (auto i = 0; i < length; i += decim) {
+                    if (applyMix) {
+                        // Mix down by the offset so the targeted band lands at DC.
+                        double phase = -Tau * std::fmod((double)(index + i) * normOffset, 1.0);
+                        writeSample(os, mixSample(samples[i], phase), sc16);
+                    } else {
+                        writeSample(os, samples[i], sc16);
+                    }
                 }
             }
         }
+        os.close();
+
+        if (!progress.wasCanceled() && sigmfCheck.isChecked()) {
+            double outRate = sampleSrc->rate() / decimation.value();
+            writeSigMFMeta(outPath, datatype, outRate, recordingCenter + appliedOffset);
+        }
     }
+
+    // Clear the bandwidth preview now the dialog has closed.
+    if (showDecimationPreview)
+        spectrogramPlot->setDecimationPreview(0, 0);
+}
+
+void PlotView::writeSigMFMeta(const QString &dataFilename, const QString &datatype,
+                              double sampleRate, double centerFrequency)
+{
+    QFileInfo dataInfo(dataFilename);
+    QString fname = dataInfo.fileName();
+
+    // SigMF pairs <base>.sigmf-meta with its dataset. Derive <base> from the
+    // data file, stripping a .sigmf-data suffix specially since it isn't a
+    // normal extension.
+    QString base;
+    const QString sigmfDataSuffix = ".sigmf-data";
+    if (fname.endsWith(sigmfDataSuffix))
+        base = fname.left(fname.length() - sigmfDataSuffix.length());
+    else
+        base = dataInfo.completeBaseName();
+
+    QString metaFilename = dataInfo.path() + "/" + base + ".sigmf-meta";
+
+    QJsonObject global;
+    global["core:datatype"] = datatype;
+    global["core:version"] = "1.0.0";
+    if (sampleRate > 0)
+        global["core:sample_rate"] = sampleRate;
+    // If the dataset isn't named <base>.sigmf-data, record it as a
+    // non-conforming dataset so the metadata still points at the right file.
+    if (!fname.endsWith(sigmfDataSuffix))
+        global["core:dataset"] = fname;
+
+    QJsonObject capture;
+    capture["core:sample_start"] = 0;
+    if (centerFrequency != 0)
+        capture["core:frequency"] = centerFrequency;
+    QJsonArray captures;
+    captures.append(capture);
+
+    QJsonObject root;
+    root["global"] = global;
+    root["captures"] = captures;
+    root["annotations"] = QJsonArray();
+
+    QFile metafile(metaFilename);
+    if (!metafile.open(QFile::WriteOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, "Export",
+            "Samples were written, but the SigMF metadata file could not be created: "
+            + metafile.errorString());
+        return;
+    }
+    metafile.write(QJsonDocument(root).toJson());
+    metafile.close();
 }
 
 void PlotView::invalidateEvent()

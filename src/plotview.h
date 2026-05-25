@@ -93,6 +93,7 @@ private:
     void extractSymbols(std::shared_ptr<AbstractSampleSource> src, bool toClipboard);
     void exportSamples(std::shared_ptr<AbstractSampleSource> src);
     template<typename SOURCETYPE> void exportSamples(std::shared_ptr<AbstractSampleSource> src);
+    void writeSigMFMeta(const QString &dataFilename, const QString &datatype, double sampleRate, double centerFrequency);
     int plotsHeight();
     size_t samplesPerColumn();
     void updateViewRange(bool reCenter);
