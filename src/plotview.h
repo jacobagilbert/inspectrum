@@ -27,6 +27,7 @@
 #include "plot.h"
 #include "samplesource.h"
 #include "spectrogramplot.h"
+#include "spectrumview.h"
 #include "traceplot.h"
 
 class PlotView : public QGraphicsView, Subscriber
@@ -37,12 +38,18 @@ public:
     PlotView(InputSource *input);
     void setSampleRate(double rate);
 
+    // The spectrogram's current top edge (in global screen coordinates) and its
+    // pixel height. A docked SpectrumView calls this at paint time to align its
+    // frequency axis with the spectrogram. Returns false if unavailable.
+    bool spectrogramScreenBand(int &topGlobal, int &heightOut);
+
 signals:
     void timeSelectionChanged(float time);
     void pointerMoved(QString time, QString frequency);
     void pointerLeft();
     void zoomIn();
     void zoomOut();
+    void spectrumPlotAdded(SpectrumView *plot);
 
 public slots:
     void cursorsMoved();
@@ -75,6 +82,7 @@ private:
     SampleSource<std::complex<float>> *mainSampleSource = nullptr;
     SpectrogramPlot *spectrogramPlot = nullptr;
     std::vector<std::unique_ptr<Plot>> plots;
+    std::vector<SpectrumView*> spectrumPlots;  // owned by their QDockWidgets (MainWindow)
     range_t<size_t> viewRange;
     range_t<size_t> selectedSamples;
     int zoomPos;
@@ -95,6 +103,8 @@ private:
     QPoint pointerPos;                 // last pointer position; drives overlay + readout
 
     void addPlot(Plot *plot);
+    void addSpectrumPlot();
+    void updateSpectrumPlots();
     void emitTimeSelection();
     void emitPointerPosition();
     void extractSymbols(std::shared_ptr<AbstractSampleSource> src, bool toClipboard);

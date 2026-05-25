@@ -75,6 +75,17 @@ public:
     std::shared_ptr<SampleSource<std::complex<float>>> input() { return inputSource; };
     double getCenterFrequency();
     double frequencyAt(int y);
+
+    // Accessors used by the standalone spectrum (PSD) window. getSpectrumLine()
+    // returns the same per-column FFT power (dB) the spectrogram renders, one
+    // value per bin from -Fs/2 (index 0) to +Fs/2 (index fftSize-1).
+    std::vector<float> getSpectrumLine(size_t sample);
+    int getColumnStride() { return getStride(); }  // samples between adjacent columns
+    int getFFTSize() { return fftSize; }
+    float getPowerMin() { return powerMin; }
+    float getPowerMax() { return powerMax; }
+    double getSampleRate() { return sampleRate; }
+    bool isRealSignal() { return inputSource->realSignal(); }
     double getTunerOffsetFrequency();
     double getTunerRelativeBandwidth();
     void setDecimationPreview(int decimation, double frequencyOffset = 0);
