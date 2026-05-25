@@ -99,3 +99,4 @@ struct range_t {
 };
 
 std::string formatSIValue(float value);
+std::string formatFixedSI(double value, double reference, const std::string &unit);

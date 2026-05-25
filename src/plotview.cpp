@@ -26,6 +26,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QClipboard>
+#include <QCursor>
 #include <QDebug>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -127,6 +128,14 @@ void PlotView::addPlot(Plot *plot)
 void PlotView::mouseMoveEvent(QMouseEvent *event)
 {
     updateAnnotationTooltip(event);
+    // Report the pointer's time/frequency whether or not the crosshair overlay
+    // is enabled; only the overlay itself is gated on crosshairsEnabled.
+    pointerPos = event->pos();
+    emitPointerPosition();
+    if (crosshairsEnabled) {
+        crosshairValid = true;
+        viewport()->update();
+    }
     QGraphicsView::mouseMoveEvent(event);
 }
 
@@ -271,6 +280,36 @@ void PlotView::emitTimeSelection()
     emit timeSelectionChanged(selectionTime);
 }
 
+void PlotView::emitPointerPosition()
+{
+    if (sampleRate <= 0) {
+        emit pointerMoved(QString(), QString());
+        return;
+    }
+
+    // Time of the sample under the pointer (the x-axis is shared by every plot).
+    // The unit is fixed from the recording's total duration so it doesn't change
+    // as the pointer moves or the view zooms.
+    size_t sample = columnToSample(horizontalScrollBar()->value() + pointerPos.x());
+    double time = (double)sample / sampleRate;
+    double duration = mainSampleSource->count() / sampleRate;
+    QString timeStr = QString::fromStdString(formatFixedSI(time, duration, "s"));
+
+    // Frequency is only meaningful while the pointer is over the spectrogram,
+    // whose y-axis is frequency; derived plots use a different y-axis. The unit
+    // is fixed from the sample rate (the full span shown).
+    QString freqStr;
+    // The spectrogram is the first plot, drawn from this y (matches paintEvent).
+    int spectrogramTop = -verticalScrollBar()->value();
+    int relY = pointerPos.y() - spectrogramTop;
+    if (spectrogramPlot != nullptr && relY >= 0 && relY < spectrogramPlot->height()) {
+        double frequency = spectrogramPlot->frequencyAt(relY);
+        freqStr = QString::fromStdString(formatFixedSI(frequency, sampleRate, "Hz"));
+    }
+
+    emit pointerMoved(timeStr, freqStr);
+}
+
 void PlotView::enableCursors(bool enabled)
 {
     cursorsEnabled = enabled;
@@ -311,6 +350,16 @@ bool PlotView::viewportEvent(QEvent *event) {
             }
             return true;
         }
+    }
+
+    // When the pointer leaves the plot, hide the crosshair overlay and flag the
+    // readout as stale (it keeps its last value, shown de-emphasized).
+    if (event->type() == QEvent::Leave) {
+        if (crosshairValid) {
+            crosshairValid = false;
+            viewport()->update();
+        }
+        emit pointerLeft();
     }
 
     // Pass mouse events to individual plot objects
@@ -783,8 +832,44 @@ void PlotView::paintEvent(QPaintEvent *event)
         paintTimeScale(painter, rect, viewRange);
     }
 
+    if (crosshairsEnabled && crosshairValid) {
+        paintCrosshair(painter, rect);
+    }
+
 
 #undef PLOT_LAYER
+}
+
+void PlotView::paintCrosshair(QPainter &painter, QRect &rect)
+{
+    if (!rect.contains(pointerPos))
+        return;
+
+    const int mx = pointerPos.x();
+    const int my = pointerPos.y();
+    const int cross = 2;          // half-length of the central "+" (5px tall/wide)
+    const int gap = 8;            // blank space between the "+" and the long lines
+    const int clear = cross + gap;
+
+    painter.save();
+    // Fine, single-pixel line; kept subtle so it doesn't obscure the spectrogram.
+    painter.setPen(QPen(QColor(255, 255, 255, 160), 1, Qt::SolidLine));
+
+    // Small central "+" marking the exact point.
+    painter.drawLine(mx - cross, my, mx + cross, my);
+    painter.drawLine(mx, my - cross, mx, my + cross);
+
+    // Vertical line spans the full plot stack, linking the (shared) time axis of
+    // the spectrogram and every derived plot.
+    painter.drawLine(mx, rect.top(), mx, my - clear);
+    painter.drawLine(mx, my + clear, mx, rect.bottom());
+
+    // Horizontal line stays within the hovered plot's row (its y is meaningful
+    // only there) and runs the full width.
+    painter.drawLine(rect.left(), my, mx - clear, my);
+    painter.drawLine(mx + clear, my, rect.right(), my);
+
+    painter.restore();
 }
 
 void PlotView::paintTimeScale(QPainter &painter, QRect &rect, range_t<size_t> sampleRange)
@@ -904,6 +989,11 @@ void PlotView::updateView(bool reCenter, bool expanding)
     };
     cursors.setSelection(newSelection);
 
+    // Keep the pointer readout current when the view changes under a stationary
+    // pointer (e.g. zoom or scroll).
+    if (viewport()->underMouse())
+        emitPointerPosition();
+
     // Re-paint
     viewport()->update();
 }
@@ -955,7 +1045,31 @@ void PlotView::enableAnnoColors(bool enabled)
 {
     if (spectrogramPlot != nullptr)
         spectrogramPlot->enableAnnoColors(enabled);
-    
+
+    viewport()->update();
+}
+
+void PlotView::enableCrosshairs(bool enabled)
+{
+    crosshairsEnabled = enabled;
+    if (enabled) {
+        // Hide the pointer entirely; the drawn "+" marks the exact point. NoDrag
+        // is required because ScrollHandDrag forces its own hand cursor on every
+        // press/release.
+        setDragMode(QGraphicsView::NoDrag);
+        viewport()->setCursor(Qt::BlankCursor);
+        // If the pointer is already over the plot, show the crosshair at once
+        // instead of waiting for the first move.
+        if (viewport()->underMouse()) {
+            pointerPos = viewport()->mapFromGlobal(QCursor::pos());
+            crosshairValid = true;
+        }
+    } else {
+        crosshairValid = false;
+        // Restore the default pan-hand drag behaviour (resets the cursor too).
+        setDragMode(QGraphicsView::ScrollHandDrag);
+    }
+
     viewport()->update();
 }
 

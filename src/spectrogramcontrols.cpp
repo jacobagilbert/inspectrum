@@ -69,6 +69,17 @@ SpectrogramControls::SpectrogramControls(const QString & title, QWidget * parent
     scalesCheckBox->setCheckState(Qt::Checked);
     layout->addRow(new QLabel(tr("Scales:")), scalesCheckBox);
 
+    crosshairCheckBox = new QCheckBox(widget);
+    layout->addRow(new QLabel(tr("Crosshairs:")), crosshairCheckBox);
+
+    // Pointer readout under the checkbox: time on the left, frequency on the
+    // right. Updates with the mouse regardless of whether the overlay is on.
+    pointerTimeLabel = new QLabel();
+    pointerTimeLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    pointerFreqLabel = new QLabel();
+    pointerFreqLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    layout->addRow(pointerTimeLabel, pointerFreqLabel);
+
     // Time selection settings
     layout->addRow(new QLabel()); // TODO: find a better way to add an empty row?
     layout->addRow(new QLabel(tr("<b>Time selection</b>")));
@@ -132,12 +143,32 @@ void SpectrogramControls::cursorsStateChanged(int state)
     }
 }
 
+void SpectrogramControls::pointerMoved(QString time, QString frequency)
+{
+    // Frequency (relative to centre) is blank while the pointer is off the
+    // spectrogram. The readout is "live" (full strength) while the pointer is
+    // over the plot.
+    pointerTimeLabel->setText(time);
+    pointerFreqLabel->setText(frequency);
+    pointerTimeLabel->setEnabled(true);
+    pointerFreqLabel->setEnabled(true);
+}
+
+void SpectrogramControls::pointerLeft()
+{
+    // Keep the last reading but de-emphasise it to show it's no longer live.
+    pointerTimeLabel->setEnabled(false);
+    pointerFreqLabel->setEnabled(false);
+}
+
 void SpectrogramControls::setDefaults()
 {
     fftOrZoomChanged();
 
     cursorsCheckBox->setCheckState(Qt::Unchecked);
     cursorSymbolsSpinBox->setValue(1);
+
+    crosshairCheckBox->setCheckState(Qt::Unchecked);
 
     annosCheckBox->setCheckState(Qt::Checked);
     annoLabelCheckBox->setCheckState(Qt::Checked);

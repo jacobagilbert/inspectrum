@@ -74,6 +74,7 @@ public:
     void leaveEvent();
     std::shared_ptr<SampleSource<std::complex<float>>> input() { return inputSource; };
     double getCenterFrequency();
+    double frequencyAt(int y);
     double getTunerOffsetFrequency();
     double getTunerRelativeBandwidth();
     void setDecimationPreview(int decimation, double frequencyOffset = 0);
@@ -126,6 +127,7 @@ private:
     float* getFFTTile(size_t tile);
     void getLine(float *dest, size_t sample);
     int getStride();
+    int spectrumHeight();
     float getTunerPhaseInc();
     std::vector<float> getTunerTaps();
     int linesPerTile();

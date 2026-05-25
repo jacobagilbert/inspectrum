@@ -19,6 +19,9 @@
 
 #include "util.h"
 
+#include <cmath>
+#include <iomanip>
+
 std::string formatSIValue(float value)
 {
     std::map<int, std::string> prefixes = {
@@ -42,5 +45,44 @@ std::string formatSIValue(float value)
     }
     std::stringstream ss;
     ss << value << prefixes[power];
+    return ss.str();
+}
+
+std::string formatFixedSI(double value, double reference, const std::string &unit)
+{
+    // SI prefix chosen from the magnitude of `reference` (not `value`), so the
+    // displayed unit stays fixed as the value changes, with fixed decimal
+    // precision. e.g. a >= 2 MHz reference always reads in MHz, and a value near
+    // zero reads "0.000 MHz" rather than switching unit (which also avoids the
+    // negative-value pitfall in formatSIValue()).
+    static const struct { double threshold; double scale; const char *prefix; } steps[] = {
+        { 2e9,  1e9,  "G" },
+        { 2e6,  1e6,  "M" },
+        { 2e3,  1e3,  "k" },
+        { 2e0,  1e0,  ""  },
+        { 2e-3, 1e-3, "m" },
+        { 2e-6, 1e-6, "µ" },
+        { 2e-9, 1e-9, "n" },
+    };
+
+    const int decimals = 3;
+    double absRef = std::fabs(reference);
+    double scale = 1e-9;          // used when reference is below the smallest threshold
+    const char *prefix = "n";
+    for (auto &s : steps) {
+        if (absRef >= s.threshold) {
+            scale = s.scale;
+            prefix = s.prefix;
+            break;
+        }
+    }
+
+    double scaled = value / scale;
+    // Snap values that round to zero so we never display a negative zero.
+    if (std::fabs(scaled) < 0.5 * std::pow(10.0, -decimals))
+        scaled = 0.0;
+
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(decimals) << scaled << " " << prefix << unit;
     return ss.str();
 }

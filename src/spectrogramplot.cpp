@@ -92,9 +92,7 @@ void SpectrogramPlot::paintFrequencyScale(QPainter &painter, QRect &rect)
     // At which pixel is F_+sampleRate/2
     int y = rect.y();
 
-    int plotHeight = rect.height();
-    if (inputSource->realSignal())
-        plotHeight *= 2;
+    int plotHeight = spectrumHeight();
 
     double bwPerPixel = (double)sampleRate / plotHeight;
     int tickHeight = 50;
@@ -405,6 +403,28 @@ double SpectrogramPlot::getCenterFrequency()
     // Absolute centre frequency of the tuner's output: the recording's centre
     // frequency plus the offset the tuner mixes down to baseband.
     return inputSource->getFrequency() + getTunerPhaseInc() / Tau * sampleRate;
+}
+
+int SpectrogramPlot::spectrumHeight()
+{
+    // Logical height of the full spectrum in pixels. Real signals show only the
+    // positive half, so the logical height is twice the drawn height.
+    return inputSource->realSignal() ? height() * 2 : height();
+}
+
+double SpectrogramPlot::frequencyAt(int y)
+{
+    // Map a y offset (from the top of this plot) to a frequency relative to the
+    // centre, mirroring the layout drawn by paintFrequencyScale(): 0 Hz sits at
+    // the vertical middle for complex inputs, and at the bottom for real inputs
+    // (where only positive frequencies are shown). RF centre frequency is not
+    // applied, so this is the offset shown by the frequency scale.
+    int plotHeight = spectrumHeight();
+    if (plotHeight == 0)
+        return 0.0;
+
+    double bwPerPixel = sampleRate / plotHeight;
+    return ((double)plotHeight / 2.0 - y) * bwPerPixel;
 }
 
 double SpectrogramPlot::getTunerOffsetFrequency()

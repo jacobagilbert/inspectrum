@@ -39,6 +39,8 @@ public:
 
 signals:
     void timeSelectionChanged(float time);
+    void pointerMoved(QString time, QString frequency);
+    void pointerLeft();
     void zoomIn();
     void zoomOut();
 
@@ -50,6 +52,7 @@ public slots:
     void enableAnnoLabels(bool enabled);
     void enableAnnotationCommentsTooltips(bool enabled);
     void enableAnnoColors(bool enabled);
+    void enableCrosshairs(bool enabled);
     void invalidateEvent() override;
     void repaint();
     void setCursorSegments(int segments);
@@ -87,9 +90,13 @@ private:
     bool timeScaleEnabled;
     int scrollZoomStepsAccumulated = 0;
     bool annotationCommentsEnabled;
+    bool crosshairsEnabled = false;   // crosshair overlay (toggled by the checkbox)
+    bool crosshairValid = false;      // overlay drawable: pointer seen inside the viewport
+    QPoint pointerPos;                 // last pointer position; drives overlay + readout
 
     void addPlot(Plot *plot);
     void emitTimeSelection();
+    void emitPointerPosition();
     void extractSymbols(std::shared_ptr<AbstractSampleSource> src, bool toClipboard);
     void exportSamples(std::shared_ptr<AbstractSampleSource> src);
     template<typename SOURCETYPE> void exportSamples(std::shared_ptr<AbstractSampleSource> src);
@@ -99,6 +106,7 @@ private:
     void updateViewRange(bool reCenter);
     void updateView(bool reCenter = false, bool expanding = false);
     void paintTimeScale(QPainter &painter, QRect &rect, range_t<size_t> sampleRange);
+    void paintCrosshair(QPainter &painter, QRect &rect);
     void updateAnnotationTooltip(QMouseEvent *event);
 
     int sampleToColumn(size_t sample);

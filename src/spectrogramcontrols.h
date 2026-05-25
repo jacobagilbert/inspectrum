@@ -42,6 +42,8 @@ signals:
 
 public slots:
     void timeSelectionChanged(float time);
+    void pointerMoved(QString time, QString frequency);
+    void pointerLeft();
     void zoomIn();
     void zoomOut();
     void enableAnnotations(bool enabled);
@@ -74,6 +76,9 @@ public:
     QLabel *symbolRateLabel;
     QLabel *symbolPeriodLabel;
     QCheckBox *scalesCheckBox;
+    QCheckBox *crosshairCheckBox;
+    QLabel *pointerTimeLabel;
+    QLabel *pointerFreqLabel;
     QCheckBox *annosCheckBox;
     QCheckBox *annoLabelCheckBox;
     QCheckBox *commentsCheckBox;

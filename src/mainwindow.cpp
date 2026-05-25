@@ -50,6 +50,7 @@ MainWindow::MainWindow()
     connect(dock->powerMinSlider, &QSlider::valueChanged, plots, &PlotView::setPowerMin);
     connect(dock->cursorsCheckBox, &QCheckBox::stateChanged, plots, &PlotView::enableCursors);
     connect(dock->scalesCheckBox, &QCheckBox::stateChanged, plots, &PlotView::enableScales);
+    connect(dock->crosshairCheckBox, &QCheckBox::stateChanged, plots, &PlotView::enableCrosshairs);
     connect(dock->annosCheckBox, &QCheckBox::stateChanged, plots, &PlotView::enableAnnotations);
     connect(dock->annosCheckBox, &QCheckBox::stateChanged, dock, &SpectrogramControls::enableAnnotations);
     connect(dock->annoLabelCheckBox, &QCheckBox::stateChanged, plots, &PlotView::enableAnnoLabels);
@@ -59,6 +60,8 @@ MainWindow::MainWindow()
 
     // Connect dock outputs
     connect(plots, &PlotView::timeSelectionChanged, dock, &SpectrogramControls::timeSelectionChanged);
+    connect(plots, &PlotView::pointerMoved, dock, &SpectrogramControls::pointerMoved);
+    connect(plots, &PlotView::pointerLeft, dock, &SpectrogramControls::pointerLeft);
     connect(plots, &PlotView::zoomIn, dock, &SpectrogramControls::zoomIn);
     connect(plots, &PlotView::zoomOut, dock, &SpectrogramControls::zoomOut);
 
