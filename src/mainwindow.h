@@ -37,6 +37,7 @@ public slots:
     void setSampleRate(QString rate);
     void setSampleRate(double rate);
     void setFormat(QString fmt);
+    void addSpectrumPlot(SpectrumView *plot);
     void invalidateEvent() override;
 
 private:

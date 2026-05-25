@@ -387,6 +387,15 @@ void SpectrogramPlot::getLine(float *dest, size_t sample)
     }
 }
 
+std::vector<float> SpectrogramPlot::getSpectrumLine(size_t sample)
+{
+    // Reuse the spectrogram's own FFT path so the PSD window matches what's drawn
+    // exactly. getLine() fills fftSize dB values (or -inf past the file's end).
+    std::vector<float> line(fftSize);
+    getLine(line.data(), sample);
+    return line;
+}
+
 int SpectrogramPlot::getStride()
 {
     return fftSize * nfftSkip / zoomLevel;

@@ -18,6 +18,7 @@
  */
 
 #include "plotview.h"
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <fstream>
@@ -125,6 +126,73 @@ void PlotView::addPlot(Plot *plot)
     connect(plot, &Plot::repaint, this, &PlotView::repaint);
 }
 
+void PlotView::addSpectrumPlot()
+{
+    if (spectrogramPlot == nullptr)
+        return;
+
+    auto plot = new SpectrumView(spectrogramPlot, this);
+    plot->enableScales(timeScaleEnabled);
+    spectrumPlots.push_back(plot);
+
+    // Drop our reference when the widget (and its dock) is destroyed via the
+    // spectrum plot's own "Remove" action.
+    connect(plot, &QObject::destroyed, this, [this](QObject *obj) {
+        auto it = std::find(spectrumPlots.begin(), spectrumPlots.end(), obj);
+        if (it != spectrumPlots.end())
+            spectrumPlots.erase(it);
+    });
+
+    // MainWindow wraps this in a detachable dock to the right of the spectrogram.
+    emit spectrumPlotAdded(plot);
+
+    // Seed the column under the pointer (alignment is resolved at paint time).
+    updateSpectrumPlots();
+}
+
+void PlotView::updateSpectrumPlots()
+{
+    if (spectrumPlots.empty())
+        return;
+
+    size_t sample = columnToSample(horizontalScrollBar()->value() + pointerPos.x());
+    for (auto plot : spectrumPlots) {
+        plot->setSample(sample);
+        // The crosshair's frequency line continues across the spectrum plots,
+        // so they follow the pointer vertically too.
+        if (crosshairsEnabled)
+            plot->update();
+    }
+}
+
+bool PlotView::spectrogramScreenBand(int &topGlobal, int &heightOut)
+{
+    if (spectrogramPlot == nullptr || spectrogramPlot->height() <= 0)
+        return false;
+
+    // The spectrogram is the first plot, drawn from this y in the viewport
+    // (matches paintEvent / emitPointerPosition). Reported in global screen
+    // coordinates so a SpectrumView can map it into its own (docked or floating)
+    // widget regardless of its title bar.
+    int spectrogramTop = -verticalScrollBar()->value();
+    topGlobal = viewport()->mapToGlobal(QPoint(0, spectrogramTop)).y();
+    heightOut = spectrogramPlot->height();
+    return true;
+}
+
+bool PlotView::crosshairScreenY(int &yGlobal)
+{
+    if (!crosshairsEnabled || !crosshairValid || spectrogramPlot == nullptr)
+        return false;
+    // Only while over the spectrogram, whose y-axis is frequency (as the
+    // pointer readout).
+    int relY = pointerPos.y() + verticalScrollBar()->value();
+    if (relY < 0 || relY >= spectrogramPlot->height())
+        return false;
+    yGlobal = viewport()->mapToGlobal(pointerPos).y();
+    return true;
+}
+
 void PlotView::mouseMoveEvent(QMouseEvent *event)
 {
     updateAnnotationTooltip(event);
@@ -132,6 +200,7 @@ void PlotView::mouseMoveEvent(QMouseEvent *event)
     // is enabled; only the overlay itself is gated on crosshairsEnabled.
     pointerPos = event->pos();
     emitPointerPosition();
+    updateSpectrumPlots();
     if (crosshairsEnabled) {
         crosshairValid = true;
         viewport()->update();
@@ -205,6 +274,19 @@ void PlotView::contextMenuEvent(QContextMenuEvent * event)
             }
         );
         plotsMenu->addAction(action);
+    }
+
+    // Add a standalone spectrum (PSD) window for the spectrogram. It tracks the
+    // pointer and lives in its own detachable dock to the right.
+    if (selectedPlot == spectrogramPlot) {
+        auto spectrumAction = new QAction("Add spectrum plot", &menu);
+        connect(
+            spectrumAction, &QAction::triggered,
+            this, [=]() {
+                addSpectrumPlot();
+            }
+        );
+        menu.addAction(spectrumAction);
     }
 
     // Add submenu for extracting symbols
@@ -358,6 +440,7 @@ bool PlotView::viewportEvent(QEvent *event) {
         if (crosshairValid) {
             crosshairValid = false;
             viewport()->update();
+            updateSpectrumPlots();
         }
         emit pointerLeft();
     }
@@ -731,6 +814,10 @@ void PlotView::writeSigMFMeta(const QString &dataFilename, const QString &dataty
 
 void PlotView::invalidateEvent()
 {
+    // The underlying samples changed (e.g. file reload); drop memoised FFT lines.
+    for (auto plot : spectrumPlots)
+        plot->invalidateCache();
+
     // Recompute the view range, scrollbars and plot heights for the new file;
     // painting and "Current view" export both read viewRange.
     horizontalScrollBar()->setMinimum(0);
@@ -989,6 +1076,15 @@ void PlotView::updateView(bool reCenter, bool expanding)
     };
     cursors.setSelection(newSelection);
 
+    // Track the column under the (possibly stationary) pointer; horizontal scroll
+    // changes it. setSample() skips the repaint when the column is unchanged.
+    updateSpectrumPlots();
+    // Force a repaint regardless so the alignment band and power scaling follow
+    // vertical scroll, resize and power-range changes even when the column (and
+    // thus setSample) didn't change. The view recomputes its alignment in paint.
+    for (auto plot : spectrumPlots)
+        plot->update();
+
     // Keep the pointer readout current when the view changes under a stationary
     // pointer (e.g. zoom or scroll).
     if (viewport()->underMouse())
@@ -1014,6 +1110,9 @@ void PlotView::enableScales(bool enabled)
 
     if (spectrogramPlot != nullptr)
         spectrogramPlot->enableScales(enabled);
+
+    for (auto plot : spectrumPlots)
+        plot->enableScales(enabled);
 
     viewport()->update();
 }
@@ -1070,6 +1169,8 @@ void PlotView::enableCrosshairs(bool enabled)
         setDragMode(QGraphicsView::ScrollHandDrag);
     }
 
+    for (auto plot : spectrumPlots)
+        plot->update();
     viewport()->update();
 }
 

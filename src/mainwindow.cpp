@@ -64,6 +64,7 @@ MainWindow::MainWindow()
     connect(plots, &PlotView::pointerLeft, dock, &SpectrogramControls::pointerLeft);
     connect(plots, &PlotView::zoomIn, dock, &SpectrogramControls::zoomIn);
     connect(plots, &PlotView::zoomOut, dock, &SpectrogramControls::zoomOut);
+    connect(plots, &PlotView::spectrumPlotAdded, this, &MainWindow::addSpectrumPlot);
 
     // Set defaults after making connections so everything is in sync
     dock->setDefaults();
@@ -138,4 +139,33 @@ void MainWindow::setSampleRate(double rate)
 void MainWindow::setFormat(QString fmt)
 {
     input->setFormat(fmt.toUtf8().constData());
+}
+
+void MainWindow::addSpectrumPlot(SpectrumView *plot)
+{
+    // Wrap the spectrum view in its own dock so it sits to the right of the
+    // spectrogram but can be detached/floated like the Controls dock. The dock
+    // deletes itself on close, which the spectrum plot's "Remove" action triggers.
+    auto spectrumDock = new QDockWidget(tr("Spectrum"), this);
+    spectrumDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    spectrumDock->setAttribute(Qt::WA_DeleteOnClose);
+    spectrumDock->setWidget(plot);
+
+    // While docked, hide the title bar so the spectrum's top edge lines up with
+    // the spectrogram. When floated, restore the normal title bar so it behaves
+    // like an ordinary window (move/close). Detach/dock is driven from the
+    // spectrum plot's right-click menu.
+    // The placeholder needs a (zero-margin) layout so its sizeHint is a valid
+    // (0,0); a bare QWidget reports (-1,-1), which makes QDockWidget compute a
+    // negative minimum height ("Negative sizes (160,-1)" warning).
+    auto emptyTitle = new QWidget(spectrumDock);
+    auto emptyTitleLayout = new QHBoxLayout(emptyTitle);
+    emptyTitleLayout->setContentsMargins(0, 0, 0, 0);
+    spectrumDock->setTitleBarWidget(emptyTitle);
+    connect(spectrumDock, &QDockWidget::topLevelChanged, spectrumDock,
+            [spectrumDock, emptyTitle](bool floating) {
+        spectrumDock->setTitleBarWidget(floating ? nullptr : emptyTitle);
+    });
+
+    addDockWidget(Qt::RightDockWidgetArea, spectrumDock);
 }
