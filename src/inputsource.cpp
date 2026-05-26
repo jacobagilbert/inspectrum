@@ -475,6 +475,7 @@ void InputSource::openFile(const char *filename)
     sampleAdapter = std::move(adapter);
     sampleCount = size / sampleAdapter->sampleSize();
     _realSignal = realSignal;
+    _sigmf = !metaFilename.isEmpty();  // SigMF metadata was read
 
     invalidate();
 }

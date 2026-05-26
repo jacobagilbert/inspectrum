@@ -63,5 +63,7 @@ public:
     std::vector<Annotation> annotationList;
     std::type_index sampleType() override;
     virtual bool realSignal() { return false; };
+    // Whether the samples come from a SigMF recording
+    virtual bool isSigMF() { return false; };
     double getFrequency();
 };

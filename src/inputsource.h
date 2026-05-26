@@ -41,6 +41,7 @@ private:
     std::unique_ptr<SampleAdapter> sampleAdapter;
     std::string _fmt;
     bool _realSignal = false;
+    bool _sigmf = false;
 
     QJsonObject readMetaData(const QString &filename, std::unique_ptr<SampleAdapter> &adapter, bool &realSignal);
 
@@ -58,6 +59,9 @@ public:
     double rate();
     bool realSignal() {
         return _realSignal;
+    };
+    bool isSigMF() {
+        return _sigmf;
     };
     float relativeBandwidth() {
         return 1;
