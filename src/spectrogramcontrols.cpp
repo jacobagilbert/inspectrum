@@ -23,7 +23,10 @@
 #include <QFileDialog>
 #include <QSettings>
 #include <QLabel>
+#include <QToolTip>
+#include <QCursor>
 #include <cmath>
+#include <cstdio>
 #include "util.h"
 
 SpectrogramControls::SpectrogramControls(const QString & title, QWidget * parent)
@@ -40,6 +43,11 @@ SpectrogramControls::SpectrogramControls(const QString & title, QWidget * parent
     double_validator->setBottom(0.0);
     sampleRate->setValidator(double_validator);
     layout->addRow(new QLabel(tr("Sample rate:")), sampleRate);
+
+    // Read-only display, formatted with SI prefixes (e.g. "2.400 GHz"). Filled
+    // from SigMF metadata by MainWindow when a file is opened.
+    centerFrequency = new QLabel();
+    layout->addRow(new QLabel(tr("Center frequency:")), centerFrequency);
 
     // Spectrogram settings
     layout->addRow(new QLabel()); // TODO: find a better way to add an empty row?
@@ -104,24 +112,18 @@ SpectrogramControls::SpectrogramControls(const QString & title, QWidget * parent
     symbolPeriodLabel = new QLabel();
     layout->addRow(new QLabel(tr("Symbol period:")), symbolPeriodLabel);
 
-    // SigMF selection settings
-    layout->addRow(new QLabel()); // TODO: find a better way to add an empty row?
-    layout->addRow(new QLabel(tr("<b>SigMF Control</b>")));
-
-    annosCheckBox = new QCheckBox(widget);
-    layout->addRow(new QLabel(tr("Display Annotations:")), annosCheckBox);
-    annoLabelCheckBox = new QCheckBox(widget);
-    layout->addRow(new QLabel(tr("Annotation Labels:")), annoLabelCheckBox);
-    commentsCheckBox = new QCheckBox(widget);
-    layout->addRow(new QLabel(tr("Annotation comments:")), commentsCheckBox);
-    annoColorCheckBox = new QCheckBox(widget);
-    layout->addRow(new QLabel(tr("Annotation Colors:")), annoColorCheckBox);
+    // SigMF annotation options live in the spectrogram's right-click "SigMF" menu
 
     widget->setLayout(layout);
     setWidget(widget);
 
     connect(fftSizeSlider, &QSlider::valueChanged, this, &SpectrogramControls::fftSizeChanged);
+    // Clicking hides the mouseover tooltip, so show it again while the FFT size is dragged
+    connect(fftSizeSlider, &QSlider::sliderPressed, this, [this] {
+        QToolTip::showText(QCursor::pos(), fftSizeSlider->toolTip(), fftSizeSlider);
+    });
     connect(zoomLevelSlider, &QSlider::valueChanged, this, &SpectrogramControls::zoomLevelChanged);
+    connect(zoomLevelSlider, &QSlider::sliderPressed, this, &SpectrogramControls::showZoomToolTip);
     connect(fileOpenButton, &QPushButton::clicked, this, &SpectrogramControls::fileOpenButtonClicked);
     connect(cursorsCheckBox, &QCheckBox::stateChanged, this, &SpectrogramControls::cursorsStateChanged);
     connect(powerMinSlider, &QSlider::valueChanged, this, &SpectrogramControls::powerMinChanged);
@@ -170,9 +172,9 @@ void SpectrogramControls::setDefaults()
 
     crosshairCheckBox->setCheckState(Qt::Unchecked);
 
-    annosCheckBox->setCheckState(Qt::Checked);
-    annoLabelCheckBox->setCheckState(Qt::Checked);
-    annoColorCheckBox->setCheckState(Qt::Checked);
+    // Center frequency defaults to zero; it is auto-populated from SigMF metadata
+    // when a file with a capture frequency is opened.
+    centerFrequency->setText(tr("0 Hz"));
 
     // Try to set the sample rate from the last-used value
     QSettings settings;
@@ -187,14 +189,44 @@ void SpectrogramControls::setDefaults()
 void SpectrogramControls::fftOrZoomChanged(void)
 {
     int fftSize = pow(2, fftSizeSlider->value());
+
+    // Show the actual FFT size on mouseover, updating it live while hovered
+    fftSizeSlider->setToolTip(QString::number(fftSize));
+    if (fftSizeSlider->underMouse())
+        QToolTip::showText(QCursor::pos(), fftSizeSlider->toolTip(), fftSizeSlider);
+
+    // Show the zoom only while the zoom slider is being dragged
+    if (zoomLevelSlider->isSliderDown())
+        showZoomToolTip();
+
+    emit fftOrZoomChanged(fftSize, zoom());
+}
+
+// The zoom given to PlotView: zoomed in by this factor when positive, or out
+// by its magnitude (FFTs skipped) when negative
+int SpectrogramControls::zoom()
+{
+    int fftSize = pow(2, fftSizeSlider->value());
     int zoomLevel = zoomLevelSlider->value();
     if (zoomLevel >= 0)
         // zooming in by power-of-two steps
-        zoomLevel = std::min(fftSize, (int)pow(2, zoomLevel));
+        return std::min(fftSize, (int)pow(2, zoomLevel));
     else
         // zooming out (skipping FFTs) by power-of-two steps
-        zoomLevel = -1*std::min(fftSize, (int)pow(2, -1*zoomLevel));
-    emit fftOrZoomChanged(fftSize, zoomLevel);
+        return -1*std::min(fftSize, (int)pow(2, -1*zoomLevel));
+}
+
+void SpectrogramControls::showZoomToolTip()
+{
+    // e.g. "4x" zoomed in, or "0.12x" zoomed out to 1/8 (snprintf rounds that
+    // exact tie to even, where Qt's formatting would give "0.13x")
+    int z = zoom();
+    char buf[16];
+    if (z > 0)
+        snprintf(buf, sizeof(buf), "%dx", z);
+    else
+        snprintf(buf, sizeof(buf), "%.2gx", -1.0 / z);
+    QToolTip::showText(QCursor::pos(), buf, zoomLevelSlider);
 }
 
 void SpectrogramControls::fftSizeChanged(int value)
@@ -281,7 +313,3 @@ void SpectrogramControls::zoomOut()
     zoomLevelSlider->setValue(zoomLevelSlider->value() - 1);
 }
 
-void SpectrogramControls::enableAnnotations(bool enabled) {
-    // disable annotation comments checkbox when annotations are disabled
-    commentsCheckBox->setEnabled(enabled);
-}

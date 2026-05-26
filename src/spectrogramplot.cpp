@@ -44,7 +44,7 @@ SpectrogramPlot::SpectrogramPlot(std::shared_ptr<SampleSource<std::complex<float
     frequencyScaleEnabled = false;
     sigmfAnnotationsEnabled = true;
     sigmfAnnotationLabels = true;
-    sigmfAnnotationColors = true;
+    sigmfAnnotationColors = false;
 
     for (int i = 0; i < 256; i++) {
         float p = (float)i / 256;

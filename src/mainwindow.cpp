@@ -51,11 +51,6 @@ MainWindow::MainWindow()
     connect(dock->cursorsCheckBox, &QCheckBox::stateChanged, plots, &PlotView::enableCursors);
     connect(dock->scalesCheckBox, &QCheckBox::stateChanged, plots, &PlotView::enableScales);
     connect(dock->crosshairCheckBox, &QCheckBox::stateChanged, plots, &PlotView::enableCrosshairs);
-    connect(dock->annosCheckBox, &QCheckBox::stateChanged, plots, &PlotView::enableAnnotations);
-    connect(dock->annosCheckBox, &QCheckBox::stateChanged, dock, &SpectrogramControls::enableAnnotations);
-    connect(dock->annoLabelCheckBox, &QCheckBox::stateChanged, plots, &PlotView::enableAnnoLabels);
-    connect(dock->commentsCheckBox, &QCheckBox::stateChanged, plots, &PlotView::enableAnnotationCommentsTooltips);
-    connect(dock->annoColorCheckBox, &QCheckBox::stateChanged, plots, &PlotView::enableAnnoColors);
     connect(dock->cursorSymbolsSpinBox, static_cast<void (QSpinBox::*)(int)>(&QSpinBox::valueChanged), plots, &PlotView::setCursorSegments);
 
     // Connect dock outputs
@@ -118,6 +113,9 @@ void MainWindow::invalidateEvent()
     if(QString::number(input->rate()) != QString::number(currentValue)) {
         setSampleRate(input->rate());
     }
+
+    // Show the center frequency parsed from SigMF metadata (read-only display).
+    setCenterFrequency(input->getFrequency());
 }
 
 void MainWindow::setSampleRate(QString rate)
@@ -134,6 +132,15 @@ void MainWindow::setSampleRate(QString rate)
 void MainWindow::setSampleRate(double rate)
 {
     dock->sampleRate->setText(QString::number(rate));
+}
+
+void MainWindow::setCenterFrequency(double freq)
+{
+    // Format with SI prefixes (kHz/MHz/GHz...); show a plain "0 Hz" when unset.
+    QString text = (freq == 0.0)
+        ? QStringLiteral("0 Hz")
+        : QString::fromStdString(formatFixedSI(freq, freq, "Hz"));
+    dock->centerFrequency->setText(text);
 }
 
 void MainWindow::setFormat(QString fmt)

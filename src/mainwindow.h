@@ -36,6 +36,7 @@ public slots:
     void openFile(QString fileName);
     void setSampleRate(QString rate);
     void setSampleRate(double rate);
+    void setCenterFrequency(double freq);
     void setFormat(QString fmt);
     void addSpectrumPlot(SpectrumView *plot);
     void invalidateEvent() override;

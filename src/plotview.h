@@ -98,6 +98,8 @@ private:
     bool timeScaleEnabled;
     int scrollZoomStepsAccumulated = 0;
     bool annotationCommentsEnabled;
+    bool annotationLabelsEnabled;
+    bool annotationColorsEnabled;
     bool crosshairsEnabled = false;   // crosshair overlay (toggled by the checkbox)
     bool crosshairValid = false;      // overlay drawable: pointer seen inside the viewport
     QPoint pointerPos;                 // last pointer position; drives overlay + readout

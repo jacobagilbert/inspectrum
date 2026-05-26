@@ -112,8 +112,8 @@ PlotView::PlotView(InputSource *input) : cursors(this), viewRange({0, 0})
 
     enableAnnotations(true);
     enableAnnoLabels(true);
-    enableAnnoColors(true);
-    enableAnnotationCommentsTooltips(true);
+    enableAnnoColors(false);
+    enableAnnotationCommentsTooltips(false);
 
     addPlot(spectrogramPlot);
 
@@ -240,23 +240,7 @@ void PlotView::contextMenuEvent(QContextMenuEvent * event)
     if (selectedPlot == nullptr)
         return;
 
-    // Add actions to add derived plots
-    // that are compatible with selectedPlot's output
-    QMenu *plotsMenu = menu.addMenu("Add derived plot");
     auto src = selectedPlot->output();
-    auto compatiblePlots = as_range(Plots::plots.equal_range(src->sampleType()));
-    for (auto p : compatiblePlots) {
-        auto plotInfo = p.second;
-        auto action = new QAction(QString("Add %1").arg(plotInfo.name), plotsMenu);
-        auto plotCreator = plotInfo.creator;
-        connect(
-            action, &QAction::triggered,
-            this, [=]() {
-                addPlot(plotCreator(src));
-            }
-        );
-        plotsMenu->addAction(action);
-    }
 
     // Add a standalone spectrum (PSD) window for the spectrogram. It tracks the
     // pointer and lives in its own detachable dock to the right.
@@ -269,6 +253,59 @@ void PlotView::contextMenuEvent(QContextMenuEvent * event)
             }
         );
         menu.addAction(spectrumAction);
+    }
+
+    // Add action to export the selected samples into a file
+    auto save = new QAction("Export samples to file...", &menu);
+    connect(
+        save, &QAction::triggered,
+        this, [=]() {
+            if (selectedPlot == spectrogramPlot) {
+                exportSamples(spectrogramPlot->tunerEnabled() ? spectrogramPlot->output() : spectrogramPlot->input());
+            } else {
+                exportSamples(src);
+            }
+        }
+    );
+    menu.addAction(save);
+
+    // SigMF annotation display options, for SigMF recordings only: whether
+    // annotations are shown at all, and how each box is drawn (only available
+    // while they are shown).
+    if (spectrogramPlot != nullptr && mainSampleSource->isSigMF()) {
+        QMenu *sigmfMenu = menu.addMenu("SigMF");
+        bool annotationsEnabled = spectrogramPlot->isAnnotationsEnabled();
+
+        auto addToggle = [&](const QString &name, bool checked, void (PlotView::*setter)(bool)) {
+            auto action = new QAction(name, sigmfMenu);
+            action->setCheckable(true);
+            action->setChecked(checked);
+            connect(action, &QAction::triggered, this, [this, setter](bool on) { (this->*setter)(on); });
+            sigmfMenu->addAction(action);
+            return action;
+        };
+        addToggle("Annotations", annotationsEnabled, &PlotView::enableAnnotations);
+        sigmfMenu->addSeparator();
+        addToggle("Labels",   annotationLabelsEnabled,   &PlotView::enableAnnoLabels)->setEnabled(annotationsEnabled);
+        addToggle("Comments", annotationCommentsEnabled, &PlotView::enableAnnotationCommentsTooltips)->setEnabled(annotationsEnabled);
+        addToggle("Colors",   annotationColorsEnabled,   &PlotView::enableAnnoColors)->setEnabled(annotationsEnabled);
+    }
+
+    // Add actions to add derived plots
+    // that are compatible with selectedPlot's output
+    QMenu *plotsMenu = menu.addMenu("Add derived plot");
+    auto compatiblePlots = as_range(Plots::plots.equal_range(src->sampleType()));
+    for (auto p : compatiblePlots) {
+        auto plotInfo = p.second;
+        auto action = new QAction(QString("Add %1").arg(plotInfo.name), plotsMenu);
+        auto plotCreator = plotInfo.creator;
+        connect(
+            action, &QAction::triggered,
+            this, [=]() {
+                addPlot(plotCreator(src));
+            }
+        );
+        plotsMenu->addAction(action);
     }
 
     // Add submenu for extracting symbols
@@ -294,20 +331,6 @@ void PlotView::contextMenuEvent(QContextMenuEvent * event)
     );
     extractClipboard->setEnabled(cursorsEnabled && (src->sampleType() == typeid(float)));
     extractMenu->addAction(extractClipboard);
-
-    // Add action to export the selected samples into a file
-    auto save = new QAction("Export samples to file...", &menu);
-    connect(
-        save, &QAction::triggered,
-        this, [=]() {
-            if (selectedPlot == spectrogramPlot) {
-                exportSamples(spectrogramPlot->tunerEnabled() ? spectrogramPlot->output() : spectrogramPlot->input());
-            } else {
-                exportSamples(src);
-            }
-        }
-    );
-    menu.addAction(save);
 
     // Add action to remove the selected plot
     auto rem = new QAction("Remove plot", &menu);
@@ -1108,6 +1131,7 @@ void PlotView::enableAnnotations(bool enabled)
 
 void PlotView::enableAnnoLabels(bool enabled)
 {
+    annotationLabelsEnabled = enabled;
     if (spectrogramPlot != nullptr)
         spectrogramPlot->enableAnnoLabels(enabled);
 
@@ -1123,6 +1147,7 @@ void PlotView::enableAnnotationCommentsTooltips(bool enabled)
 
 void PlotView::enableAnnoColors(bool enabled)
 {
+    annotationColorsEnabled = enabled;
     if (spectrogramPlot != nullptr)
         spectrogramPlot->enableAnnoColors(enabled);
 
