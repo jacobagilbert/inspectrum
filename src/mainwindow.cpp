@@ -61,6 +61,12 @@ MainWindow::MainWindow()
     connect(plots, &PlotView::zoomOut, dock, &SpectrogramControls::zoomOut);
     connect(plots, &PlotView::spectrumPlotAdded, this, &MainWindow::addSpectrumPlot);
 
+    // Keyboard shortcuts (Qt maps Ctrl to Command on macOS)
+    auto openShortcut = new QShortcut(QKeySequence::Open, this);
+    connect(openShortcut, &QShortcut::activated, dock->fileOpenButton, &QPushButton::click);
+    auto reloadShortcut = new QShortcut(QKeySequence(tr("Ctrl+R")), this);
+    connect(reloadShortcut, &QShortcut::activated, this, &MainWindow::reloadFile);
+
     // Set defaults after making connections so everything is in sync
     dock->setDefaults();
 
@@ -94,12 +100,24 @@ void MainWindow::openFile(QString fileName)
     try
     {
         input->openFile(fileName.toUtf8().constData());
+        currentFile = fileName;
     }
     catch (const std::exception &ex)
     {
         QMessageBox msgBox(QMessageBox::Critical, "Inspectrum openFile error", QString("%1: %2").arg(fileName).arg(ex.what()));
         msgBox.exec();
     }
+}
+
+void MainWindow::reloadFile()
+{
+    if (currentFile.isEmpty())
+        return;
+
+    // Re-read the open file (e.g. to pick up samples appended to a capture that
+    // is still being written), with any format override it was opened with.
+    input->setFormat(input->formatOverride());
+    openFile(currentFile);
 }
 
 void MainWindow::invalidateEvent()

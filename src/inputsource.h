@@ -40,6 +40,7 @@ private:
     uchar *mmapData = nullptr;
     std::unique_ptr<SampleAdapter> sampleAdapter;
     std::string _fmt;
+    std::string _fileFmt;
     bool _realSignal = false;
     bool _sigmf = false;
 
@@ -56,6 +57,10 @@ public:
     };
     void setSampleRate(double rate);
     void setFormat(std::string fmt);
+    // The format override the open file was opened with, or empty if none
+    std::string formatOverride() {
+        return _fileFmt;
+    };
     double rate();
     bool realSignal() {
         return _realSignal;
