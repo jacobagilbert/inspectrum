@@ -682,8 +682,10 @@ void PlotView::writeSigMFMeta(const QString &dataFilename, const QString &dataty
 
 void PlotView::invalidateEvent()
 {
+    // Recompute the view range, scrollbars and plot heights for the new file;
+    // painting and "Current view" export both read viewRange.
     horizontalScrollBar()->setMinimum(0);
-    horizontalScrollBar()->setMaximum(sampleToColumn(mainSampleSource->count()));
+    updateView();
 }
 
 void PlotView::repaint()

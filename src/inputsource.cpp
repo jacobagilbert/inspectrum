@@ -242,7 +242,7 @@ void InputSource::cleanup()
     }
 }
 
-QJsonObject InputSource::readMetaData(const QString &filename)
+QJsonObject InputSource::readMetaData(const QString &filename, std::unique_ptr<SampleAdapter> &adapter, bool &realSignal)
 {
     QFile datafile(filename);
     if (!datafile.open(QFile::ReadOnly | QIODevice::Text)) {
@@ -266,27 +266,27 @@ QJsonObject InputSource::readMetaData(const QString &filename)
 
     auto datatype = global["core:datatype"].toString();
     if (datatype.compare("cf32_le") == 0) {
-        sampleAdapter = std::make_unique<ComplexF32SampleAdapter>();
+        adapter = std::make_unique<ComplexF32SampleAdapter>();
     } else if (datatype.compare("ci32_le") == 0) {
-        sampleAdapter = std::make_unique<ComplexS32SampleAdapter>();
+        adapter = std::make_unique<ComplexS32SampleAdapter>();
     } else if (datatype.compare("ci16_le") == 0) {
-        sampleAdapter = std::make_unique<ComplexS16SampleAdapter>();
+        adapter = std::make_unique<ComplexS16SampleAdapter>();
     } else if (datatype.compare("ci8") == 0) {
-        sampleAdapter = std::make_unique<ComplexS8SampleAdapter>();
+        adapter = std::make_unique<ComplexS8SampleAdapter>();
     } else if (datatype.compare("cu8") == 0) {
-        sampleAdapter = std::make_unique<ComplexU8SampleAdapter>();
+        adapter = std::make_unique<ComplexU8SampleAdapter>();
     } else if (datatype.compare("rf32_le") == 0) {
-        sampleAdapter = std::make_unique<RealF32SampleAdapter>();
-        _realSignal = true;
+        adapter = std::make_unique<RealF32SampleAdapter>();
+        realSignal = true;
     } else if (datatype.compare("ri16_le") == 0) {
-        sampleAdapter = std::make_unique<RealS16SampleAdapter>();
-        _realSignal = true;
+        adapter = std::make_unique<RealS16SampleAdapter>();
+        realSignal = true;
     } else if (datatype.compare("ri8") == 0) {
-        sampleAdapter = std::make_unique<RealS8SampleAdapter>();
-        _realSignal = true;
+        adapter = std::make_unique<RealS8SampleAdapter>();
+        realSignal = true;
     } else if (datatype.compare("ru8") == 0) {
-        sampleAdapter = std::make_unique<RealU8SampleAdapter>();
-        _realSignal = true;
+        adapter = std::make_unique<RealU8SampleAdapter>();
+        realSignal = true;
     } else {
         throw std::runtime_error("SigMF meta data specifies unsupported datatype");
     }
@@ -368,58 +368,71 @@ void InputSource::openFile(const char *filename)
 {
     QFileInfo fileInfo(filename);
     std::string suffix = std::string(fileInfo.suffix().toLower().toUtf8().constData());
-    if (_fmt != "") { suffix = _fmt; } // allow fmt override
+    bool isSigMF = (suffix == "sigmf-meta" || suffix == "sigmf-data" || suffix == "sigmf-");
+    // The format override (-f) applies only to the next file opened, and never
+    // to SigMF recordings, whose metadata specifies the datatype. Later files
+    // are identified by their own extension/metadata.
+    if (_fmt != "" && !isSigMF) { suffix = _fmt; }
+    _fmt.clear();
+
+    // Per-file state is built up here and only committed once the new data file
+    // is mapped, so samples are never decoded with another file's datatype.
+    std::unique_ptr<SampleAdapter> adapter;
+    bool realSignal = false;
+
     if ((suffix == "cfile") || (suffix == "cf32")  || (suffix == "fc32")) {
-        sampleAdapter = std::make_unique<ComplexF32SampleAdapter>();
+        adapter = std::make_unique<ComplexF32SampleAdapter>();
     }
     else if ((suffix == "cf64")  || (suffix == "fc64")) {
-        sampleAdapter = std::make_unique<ComplexF64SampleAdapter>();
+        adapter = std::make_unique<ComplexF64SampleAdapter>();
     }
     else if ((suffix == "cs32") || (suffix == "sc32") || (suffix == "c32")) {
-        sampleAdapter = std::make_unique<ComplexS32SampleAdapter>();
+        adapter = std::make_unique<ComplexS32SampleAdapter>();
     }
     else if ((suffix == "cs16") || (suffix == "sc16") || (suffix == "c16")) {
-        sampleAdapter = std::make_unique<ComplexS16SampleAdapter>();
+        adapter = std::make_unique<ComplexS16SampleAdapter>();
     }
     else if ((suffix == "cs8") || (suffix == "sc8") || (suffix == "c8")) {
-        sampleAdapter = std::make_unique<ComplexS8SampleAdapter>();
+        adapter = std::make_unique<ComplexS8SampleAdapter>();
     }
     else if ((suffix == "cu8") || (suffix == "uc8")) {
-        sampleAdapter = std::make_unique<ComplexU8SampleAdapter>();
+        adapter = std::make_unique<ComplexU8SampleAdapter>();
     }
     else if (suffix == "f32") {
-        sampleAdapter = std::make_unique<RealF32SampleAdapter>();
-        _realSignal = true;
+        adapter = std::make_unique<RealF32SampleAdapter>();
+        realSignal = true;
     }
     else if (suffix == "f64") {
-        sampleAdapter = std::make_unique<RealF64SampleAdapter>();
-        _realSignal = true;
+        adapter = std::make_unique<RealF64SampleAdapter>();
+        realSignal = true;
     }
     else if (suffix == "s16") {
-        sampleAdapter = std::make_unique<RealS16SampleAdapter>();
-        _realSignal = true;
+        adapter = std::make_unique<RealS16SampleAdapter>();
+        realSignal = true;
     }
     else if (suffix == "s8") {
-        sampleAdapter = std::make_unique<RealS8SampleAdapter>();
-        _realSignal = true;
+        adapter = std::make_unique<RealS8SampleAdapter>();
+        realSignal = true;
     }
     else if (suffix == "u8") {
-        sampleAdapter = std::make_unique<RealU8SampleAdapter>();
-        _realSignal = true;
+        adapter = std::make_unique<RealU8SampleAdapter>();
+        realSignal = true;
     }
     else {
-        sampleAdapter = std::make_unique<ComplexF32SampleAdapter>();
+        adapter = std::make_unique<ComplexF32SampleAdapter>();
     }
 
     QString dataFilename;
 
+    // Metadata from a previous SigMF recording must not carry over.
     annotationList.clear();
+    frequency = 0;
     QString metaFilename;
 
     if (suffix == "sigmf-meta" || suffix == "sigmf-data" || suffix == "sigmf-") {
         dataFilename = fileInfo.path() + "/" + fileInfo.completeBaseName() + ".sigmf-data";
         metaFilename = fileInfo.path() + "/" + fileInfo.completeBaseName() + ".sigmf-meta";
-        auto metaData = readMetaData(metaFilename);
+        auto metaData = readMetaData(metaFilename, adapter, realSignal);
         QFile datafile(dataFilename);
         if (!datafile.open(QFile::ReadOnly | QIODevice::Text)) {
             auto global = metaData["global"].toObject();
@@ -447,8 +460,6 @@ void InputSource::openFile(const char *filename)
     }
 
     auto size = file->size();
-    sampleCount = size / sampleAdapter->sampleSize();
-
     auto data = file->map(0, size);
     if (data == nullptr)
         throw std::runtime_error("Error mmapping file");
@@ -457,6 +468,9 @@ void InputSource::openFile(const char *filename)
 
     inputFile = file.release();
     mmapData = data;
+    sampleAdapter = std::move(adapter);
+    sampleCount = size / sampleAdapter->sampleSize();
+    _realSignal = realSignal;
 
     invalidate();
 }
