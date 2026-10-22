@@ -65,6 +65,7 @@ private:
 
 public:
     QPushButton *fileOpenButton;
+    QLabel *dataType;
     QLineEdit *sampleRate;
     QLabel *centerFrequency;
     QSlider *fftSizeSlider;

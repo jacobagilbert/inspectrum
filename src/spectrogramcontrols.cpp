@@ -38,6 +38,14 @@ SpectrogramControls::SpectrogramControls(const QString & title, QWidget * parent
     fileOpenButton = new QPushButton("Open file...", widget);
     layout->addRow(fileOpenButton);
 
+    // Read-only display of the open file's sample format, set by MainWindow
+    auto dataTypeTitle = new QLabel(tr("Datatype:"));
+    dataType = new QLabel();
+    QString dataTypeTip = tr("Ctrl+D / Ctrl+Shift+D (Cmd on macOS) cycle through the formats of the same kind (complex or real)");
+    dataTypeTitle->setToolTip(dataTypeTip);
+    dataType->setToolTip(dataTypeTip);
+    layout->addRow(dataTypeTitle, dataType);
+
     sampleRate = new QLineEdit();
     auto double_validator = new QDoubleValidator(this);
     double_validator->setBottom(0.0);

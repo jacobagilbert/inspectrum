@@ -43,6 +43,10 @@
 
 class ComplexF32SampleAdapter : public SampleAdapter {
 public:
+    const char *name() override {
+        return "cf32";
+    }
+
     size_t sampleSize() override {
         return sizeof(std::complex<float>);
     }
@@ -55,6 +59,10 @@ public:
 
 class ComplexF64SampleAdapter : public SampleAdapter {
 public:
+    const char *name() override {
+        return "cf64";
+    }
+
     size_t sampleSize() override {
         return sizeof(std::complex<double>);
     }
@@ -71,6 +79,10 @@ public:
 
 class ComplexS32SampleAdapter : public SampleAdapter {
 public:
+    const char *name() override {
+        return "cs32";
+    }
+
     size_t sampleSize() override {
         return sizeof(std::complex<int32_t>);
     }
@@ -88,6 +100,10 @@ public:
 
 class ComplexS16SampleAdapter : public SampleAdapter {
 public:
+    const char *name() override {
+        return "cs16";
+    }
+
     size_t sampleSize() override {
         return sizeof(std::complex<int16_t>);
     }
@@ -105,6 +121,10 @@ public:
 
 class ComplexS8SampleAdapter : public SampleAdapter {
 public:
+    const char *name() override {
+        return "cs8";
+    }
+
     size_t sampleSize() override {
         return sizeof(std::complex<int8_t>);
     }
@@ -122,6 +142,10 @@ public:
 
 class ComplexU8SampleAdapter : public SampleAdapter {
 public:
+    const char *name() override {
+        return "cu8";
+    }
+
     size_t sampleSize() override {
         return sizeof(std::complex<uint8_t>);
     }
@@ -139,6 +163,10 @@ public:
 
 class RealF32SampleAdapter : public SampleAdapter {
 public:
+    const char *name() override {
+        return "f32";
+    }
+
     size_t sampleSize() override {
         return sizeof(float);
     }
@@ -155,6 +183,10 @@ public:
 
 class RealF64SampleAdapter : public SampleAdapter {
 public:
+    const char *name() override {
+        return "f64";
+    }
+
     size_t sampleSize() override {
         return sizeof(double);
     }
@@ -171,6 +203,10 @@ public:
 
 class RealS16SampleAdapter : public SampleAdapter {
 public:
+    const char *name() override {
+        return "s16";
+    }
+
     size_t sampleSize() override {
         return sizeof(int16_t);
     }
@@ -188,6 +224,10 @@ public:
 
 class RealS8SampleAdapter : public SampleAdapter {
 public:
+    const char *name() override {
+        return "s8";
+    }
+
     size_t sampleSize() override {
         return sizeof(int8_t);
     }
@@ -205,6 +245,10 @@ public:
 
 class RealU8SampleAdapter : public SampleAdapter {
 public:
+    const char *name() override {
+        return "u8";
+    }
+
     size_t sampleSize() override {
         return sizeof(uint8_t);
     }
@@ -367,6 +411,11 @@ QJsonObject InputSource::readMetaData(const QString &filename, std::unique_ptr<S
 
     return root;
 }
+
+// The formats of each kind, in the order adjacentFormat() steps through them
+// (descending sample size)
+static const std::vector<std::string> complexFormats = {"cf64", "cf32", "cs32", "cs16", "cs8", "cu8"};
+static const std::vector<std::string> realFormats = {"f64", "f32", "s16", "s8", "u8"};
 
 // The sample adapter for a format name/file extension, or nullptr if it doesn't name one
 static std::unique_ptr<SampleAdapter> sampleAdapterFor(const std::string &fmt, bool &realSignal)
@@ -534,4 +583,11 @@ void InputSource::setFormat(std::string fmt){
 
 void InputSource::forceFormat(std::string fmt){
     _forcedFmt = fmt;
+}
+
+std::string InputSource::adjacentFormat(int step){
+    auto &formats = _realSignal ? realFormats : complexFormats;
+    int n = formats.size();
+    int i = std::find(formats.begin(), formats.end(), format()) - formats.begin();
+    return formats[((i + step) % n + n) % n];
 }
