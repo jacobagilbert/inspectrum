@@ -33,14 +33,17 @@ class Annotation
 public:
     range_t<size_t> sampleRange;
     range_t<double> frequencyRange;
+    // No frequency edges were given, so the annotation spans the whole band
+    // and frequencyRange is unused.
+    bool fullBand;
     QString label;
     QString comment;
     QColor boxColor;
 
-    Annotation(range_t<size_t> sampleRange, range_t<double>frequencyRange, QString label,
-               QString comment, QColor boxColor)
-      : sampleRange(sampleRange), frequencyRange(frequencyRange), label(label),
-        comment(comment), boxColor(boxColor) {}
+    Annotation(range_t<size_t> sampleRange, range_t<double>frequencyRange, bool fullBand,
+               QString label, QString comment, QColor boxColor)
+      : sampleRange(sampleRange), frequencyRange(frequencyRange), fullBand(fullBand),
+        label(label), comment(comment), boxColor(boxColor) {}
 };
 
 template<typename T>

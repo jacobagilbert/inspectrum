@@ -195,18 +195,28 @@ void SpectrogramPlot::paintAnnotations(QPainter &painter, QRect &rect, range_t<s
 
         if(start <= sampleRange.maximum && end >= sampleRange.minimum) {
 
-            double frequency = a.frequencyRange.maximum - inputSource->getFrequency();
             int x = (a.sampleRange.minimum - sampleRange.minimum) / getStride();
-            int y = zero - frequency / sampleRate * rect.height();
-            int height = (a.frequencyRange.maximum - a.frequencyRange.minimum) / sampleRate * rect.height();
             int width = (a.sampleRange.maximum - a.sampleRange.minimum) / getStride();
+            int y, height;
+            if (a.fullBand) {
+                y = rect.y();
+                height = rect.height() - 1;
+            } else {
+                double frequency = a.frequencyRange.maximum - inputSource->getFrequency();
+                y = zero - frequency / sampleRate * rect.height();
+                height = (a.frequencyRange.maximum - a.frequencyRange.minimum) / sampleRate * rect.height();
+            }
 
             if (sigmfAnnotationColors) {
                 painter.setPen(a.boxColor);
             }
             if (sigmfAnnotationLabels) {
-                // Draw the label 2 pixels above the box
-                painter.drawText(x, y - 2, a.label);
+                // Draw the label 2 pixels above the box. Full-band boxes start at
+                // the top of the plot, so draw theirs just inside the bottom edge.
+                if (a.fullBand)
+                    painter.drawText(x + 2, y + height - fm.descent() - 2, a.label);
+                else
+                    painter.drawText(x, y - 2, a.label);
             }
             painter.drawRect(x, y, width, height);
 

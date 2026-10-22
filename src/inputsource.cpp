@@ -335,6 +335,10 @@ QJsonObject InputSource::readMetaData(const QString &filename, std::unique_ptr<S
                 const size_t sample_count = sigmf_annotation["core:sample_count"].toDouble();
                 auto sampleRange = range_t<size_t>{rel_sample_start, rel_sample_start + sample_count - 1};
 
+                // SigMF frequency edges are optional; without them the
+                // annotation applies to the whole band.
+                const bool fullBand = !sigmf_annotation.contains("core:freq_lower_edge")
+                                      || !sigmf_annotation.contains("core:freq_upper_edge");
                 const double freq_lower_edge = sigmf_annotation["core:freq_lower_edge"].toDouble();
                 const double freq_upper_edge = sigmf_annotation["core:freq_upper_edge"].toDouble();
                 auto frequencyRange = range_t<double>{freq_lower_edge, freq_upper_edge};
@@ -356,7 +360,7 @@ QJsonObject InputSource::readMetaData(const QString &filename, std::unique_ptr<S
                     boxColor = sigmf_color;
                 }
 
-                annotationList.emplace_back(sampleRange, frequencyRange, label, comment, boxColor);
+                annotationList.emplace_back(sampleRange, frequencyRange, fullBand, label, comment, boxColor);
             }
         }
     }
