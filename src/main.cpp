@@ -54,8 +54,12 @@ int main(int argc, char *argv[])
     }
 
     const QStringList args = parser.positionalArguments();
-    if (args.size()>=1)
+    if (args.size()>=1) {
+        // -f applies to the file named with it even if its extension names another format
+        if (parser.isSet(formatOption))
+            mainWin.forceFormat(parser.value(formatOption));
         mainWin.openFile(args.at(0));
+    }
 
     if (parser.isSet(rateOption)) {
         bool ok;

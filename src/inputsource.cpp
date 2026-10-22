@@ -368,62 +368,77 @@ QJsonObject InputSource::readMetaData(const QString &filename, std::unique_ptr<S
     return root;
 }
 
+// The sample adapter for a format name/file extension, or nullptr if it doesn't name one
+static std::unique_ptr<SampleAdapter> sampleAdapterFor(const std::string &fmt, bool &realSignal)
+{
+    realSignal = false;
+    if ((fmt == "cfile") || (fmt == "cf32")  || (fmt == "fc32")) {
+        return std::make_unique<ComplexF32SampleAdapter>();
+    }
+    else if ((fmt == "cf64")  || (fmt == "fc64")) {
+        return std::make_unique<ComplexF64SampleAdapter>();
+    }
+    else if ((fmt == "cs32") || (fmt == "sc32") || (fmt == "c32")) {
+        return std::make_unique<ComplexS32SampleAdapter>();
+    }
+    else if ((fmt == "cs16") || (fmt == "sc16") || (fmt == "c16")) {
+        return std::make_unique<ComplexS16SampleAdapter>();
+    }
+    else if ((fmt == "cs8") || (fmt == "sc8") || (fmt == "c8")) {
+        return std::make_unique<ComplexS8SampleAdapter>();
+    }
+    else if ((fmt == "cu8") || (fmt == "uc8")) {
+        return std::make_unique<ComplexU8SampleAdapter>();
+    }
+
+    realSignal = true;
+    if (fmt == "f32") {
+        return std::make_unique<RealF32SampleAdapter>();
+    }
+    else if (fmt == "f64") {
+        return std::make_unique<RealF64SampleAdapter>();
+    }
+    else if (fmt == "s16") {
+        return std::make_unique<RealS16SampleAdapter>();
+    }
+    else if (fmt == "s8") {
+        return std::make_unique<RealS8SampleAdapter>();
+    }
+    else if (fmt == "u8") {
+        return std::make_unique<RealU8SampleAdapter>();
+    }
+
+    realSignal = false;
+    return nullptr;
+}
+
 void InputSource::openFile(const char *filename)
 {
     QFileInfo fileInfo(filename);
     std::string suffix = std::string(fileInfo.suffix().toLower().toUtf8().constData());
-    bool isSigMF = (suffix == "sigmf-meta" || suffix == "sigmf-data" || suffix == "sigmf-");
-    // The format override (-f) applies only to the next file opened, and never
-    // to SigMF recordings, whose metadata specifies the datatype. Later files
-    // are identified by their own extension/metadata.
-    std::string fmt = isSigMF ? "" : _fmt;
-    _fmt.clear();
-    if (fmt != "") { suffix = fmt; }
+    bool isSigMF = (suffix == "sigmf-meta" || suffix == "sigmf-data" || suffix == "sigmf-" || suffix == "sigmf");
 
     // Per-file state is built up here and only committed once the new data file
     // is mapped, so samples are never decoded with another file's datatype.
-    std::unique_ptr<SampleAdapter> adapter;
-    bool realSignal = false;
+    bool realSignal;
+    auto adapter = sampleAdapterFor(suffix, realSignal);
 
-    if ((suffix == "cfile") || (suffix == "cf32")  || (suffix == "fc32")) {
-        adapter = std::make_unique<ComplexF32SampleAdapter>();
+    // The format override (-f) is used for every file whose extension doesn't
+    // name a format, and for a file it is forced on (the one named on the
+    // command line, or a reload) whatever its extension. It never applies to
+    // SigMF recordings, whose metadata specifies the datatype.
+    std::string fmt;
+    if (!isSigMF) {
+        fmt = (_forcedFmt != "") ? _forcedFmt : (adapter ? "" : _fmt);
     }
-    else if ((suffix == "cf64")  || (suffix == "fc64")) {
-        adapter = std::make_unique<ComplexF64SampleAdapter>();
+    _forcedFmt.clear();
+    if (fmt != "") {
+        suffix = fmt;
+        adapter = sampleAdapterFor(suffix, realSignal);
     }
-    else if ((suffix == "cs32") || (suffix == "sc32") || (suffix == "c32")) {
-        adapter = std::make_unique<ComplexS32SampleAdapter>();
-    }
-    else if ((suffix == "cs16") || (suffix == "sc16") || (suffix == "c16")) {
-        adapter = std::make_unique<ComplexS16SampleAdapter>();
-    }
-    else if ((suffix == "cs8") || (suffix == "sc8") || (suffix == "c8")) {
-        adapter = std::make_unique<ComplexS8SampleAdapter>();
-    }
-    else if ((suffix == "cu8") || (suffix == "uc8")) {
-        adapter = std::make_unique<ComplexU8SampleAdapter>();
-    }
-    else if (suffix == "f32") {
-        adapter = std::make_unique<RealF32SampleAdapter>();
-        realSignal = true;
-    }
-    else if (suffix == "f64") {
-        adapter = std::make_unique<RealF64SampleAdapter>();
-        realSignal = true;
-    }
-    else if (suffix == "s16") {
-        adapter = std::make_unique<RealS16SampleAdapter>();
-        realSignal = true;
-    }
-    else if (suffix == "s8") {
-        adapter = std::make_unique<RealS8SampleAdapter>();
-        realSignal = true;
-    }
-    else if (suffix == "u8") {
-        adapter = std::make_unique<RealU8SampleAdapter>();
-        realSignal = true;
-    }
-    else {
+
+    // Unknown formats default to cf32 (SigMF metadata replaces this below)
+    if (!adapter) {
         adapter = std::make_unique<ComplexF32SampleAdapter>();
     }
 
@@ -515,4 +530,8 @@ std::unique_ptr<std::complex<float>[]> InputSource::getSamples(size_t start, siz
 
 void InputSource::setFormat(std::string fmt){
     _fmt = fmt;
+}
+
+void InputSource::forceFormat(std::string fmt){
+    _forcedFmt = fmt;
 }
