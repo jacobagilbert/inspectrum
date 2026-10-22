@@ -26,6 +26,8 @@
 
 class SampleAdapter {
 public:
+    // Canonical format name, as accepted by -f
+    virtual const char *name() = 0;
     virtual size_t sampleSize() = 0;
     virtual void copyRange(const void* const src, size_t start, size_t length, std::complex<float>* const dest) = 0;
     virtual ~SampleAdapter() { };
@@ -65,6 +67,13 @@ public:
     std::string formatOverride() {
         return _fileFmt;
     };
+    // The open file's sample format, or empty if no file is open
+    std::string format() {
+        return sampleAdapter ? sampleAdapter->name() : "";
+    };
+    // The format step places from the open file's among formats of the same
+    // kind (complex or real), wrapping around
+    std::string adjacentFormat(int step);
     double rate();
     bool realSignal() {
         return _realSignal;

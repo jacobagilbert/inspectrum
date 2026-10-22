@@ -66,6 +66,10 @@ MainWindow::MainWindow()
     connect(openShortcut, &QShortcut::activated, dock->fileOpenButton, &QPushButton::click);
     auto reloadShortcut = new QShortcut(QKeySequence(tr("Ctrl+R")), this);
     connect(reloadShortcut, &QShortcut::activated, this, &MainWindow::reloadFile);
+    auto nextFormatShortcut = new QShortcut(QKeySequence(tr("Ctrl+D")), this);
+    connect(nextFormatShortcut, &QShortcut::activated, this, [this] { cycleFormat(1); });
+    auto prevFormatShortcut = new QShortcut(QKeySequence(tr("Ctrl+Shift+D")), this);
+    connect(prevFormatShortcut, &QShortcut::activated, this, [this] { cycleFormat(-1); });
 
     // Set defaults after making connections so everything is in sync
     dock->setDefaults();
@@ -120,6 +124,18 @@ void MainWindow::reloadFile()
     openFile(currentFile);
 }
 
+void MainWindow::cycleFormat(int step)
+{
+    if (currentFile.isEmpty())
+        return;
+
+    // Re-read the open file as the next/previous format of the same kind
+    // (complex or real). SigMF recordings ignore this and keep the datatype
+    // from their metadata.
+    input->forceFormat(input->adjacentFormat(step));
+    openFile(currentFile);
+}
+
 void MainWindow::invalidateEvent()
 {
     plots->setSampleRate(input->rate());
@@ -134,6 +150,8 @@ void MainWindow::invalidateEvent()
 
     // Show the center frequency parsed from SigMF metadata (read-only display).
     setCenterFrequency(input->getFrequency());
+
+    dock->dataType->setText(QString::fromStdString(input->format()));
 }
 
 void MainWindow::setSampleRate(QString rate)
