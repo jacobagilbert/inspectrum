@@ -40,6 +40,7 @@ private:
     uchar *mmapData = nullptr;
     std::unique_ptr<SampleAdapter> sampleAdapter;
     std::string _fmt;
+    std::string _forcedFmt;
     std::string _fileFmt;
     bool _realSignal = false;
     bool _sigmf = false;
@@ -56,7 +57,10 @@ public:
         return sampleCount;
     };
     void setSampleRate(double rate);
+    // Format for files whose extension doesn't name one (SigMF never uses it)
     void setFormat(std::string fmt);
+    // Decode the next file opened as fmt even if its extension names another format
+    void forceFormat(std::string fmt);
     // The format override the open file was opened with, or empty if none
     std::string formatOverride() {
         return _fileFmt;

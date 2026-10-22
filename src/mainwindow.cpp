@@ -116,7 +116,7 @@ void MainWindow::reloadFile()
 
     // Re-read the open file (e.g. to pick up samples appended to a capture that
     // is still being written), with any format override it was opened with.
-    input->setFormat(input->formatOverride());
+    input->forceFormat(input->formatOverride());
     openFile(currentFile);
 }
 
@@ -164,6 +164,11 @@ void MainWindow::setCenterFrequency(double freq)
 void MainWindow::setFormat(QString fmt)
 {
     input->setFormat(fmt.toUtf8().constData());
+}
+
+void MainWindow::forceFormat(QString fmt)
+{
+    input->forceFormat(fmt.toUtf8().constData());
 }
 
 void MainWindow::addSpectrumPlot(SpectrumView *plot)
