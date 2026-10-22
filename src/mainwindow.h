@@ -34,6 +34,7 @@ public:
 
 public slots:
     void openFile(QString fileName);
+    void reloadFile();
     void setSampleRate(QString rate);
     void setSampleRate(double rate);
     void setCenterFrequency(double freq);
@@ -45,4 +46,5 @@ private:
     SpectrogramControls *dock;
     PlotView *plots;
     InputSource *input;
+    QString currentFile;
 };

@@ -376,8 +376,9 @@ void InputSource::openFile(const char *filename)
     // The format override (-f) applies only to the next file opened, and never
     // to SigMF recordings, whose metadata specifies the datatype. Later files
     // are identified by their own extension/metadata.
-    if (_fmt != "" && !isSigMF) { suffix = _fmt; }
+    std::string fmt = isSigMF ? "" : _fmt;
     _fmt.clear();
+    if (fmt != "") { suffix = fmt; }
 
     // Per-file state is built up here and only committed once the new data file
     // is mapped, so samples are never decoded with another file's datatype.
@@ -475,6 +476,7 @@ void InputSource::openFile(const char *filename)
     sampleAdapter = std::move(adapter);
     sampleCount = size / sampleAdapter->sampleSize();
     _realSignal = realSignal;
+    _fileFmt = fmt;
     _sigmf = !metaFilename.isEmpty();  // SigMF metadata was read
 
     invalidate();
