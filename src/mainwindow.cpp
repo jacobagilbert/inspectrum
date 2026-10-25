@@ -70,6 +70,15 @@ MainWindow::MainWindow()
     connect(nextFormatShortcut, &QShortcut::activated, this, [this] { cycleFormat(1); });
     auto prevFormatShortcut = new QShortcut(QKeySequence(tr("Ctrl+Shift+D")), this);
     connect(prevFormatShortcut, &QShortcut::activated, this, [this] { cycleFormat(-1); });
+    // Ctrl+Up/Down step the FFT size and Ctrl+Left/Right the zoom
+    auto stepSlider = [this](const char *keys, QSlider *slider, int step) {
+        auto shortcut = new QShortcut(QKeySequence(tr(keys)), this);
+        connect(shortcut, &QShortcut::activated, slider, [slider, step] { slider->setValue(slider->value() + step); });
+    };
+    stepSlider("Ctrl+Up", dock->fftSizeSlider, 1);
+    stepSlider("Ctrl+Down", dock->fftSizeSlider, -1);
+    stepSlider("Ctrl+Right", dock->zoomLevelSlider, 1);
+    stepSlider("Ctrl+Left", dock->zoomLevelSlider, -1);
 
     // Set defaults after making connections so everything is in sync
     dock->setDefaults();
