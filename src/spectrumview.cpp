@@ -96,13 +96,19 @@ void SpectrumView::paintEvent(QPaintEvent *)
     // whole widget instead.
     int bandTop = 0;
     int bandH = height();
-    int topGlobal = 0, specHeight = 0;
-    bool aligned = plotView != nullptr && plotView->spectrogramScreenBand(topGlobal, specHeight);
+    int visibleBottom = height();
+    int topGlobal = 0, specHeight = 0, paneBottomGlobal = 0;
+    bool aligned = plotView != nullptr
+                   && plotView->spectrogramScreenBand(topGlobal, specHeight, paneBottomGlobal);
     auto d = dock();
     bool floating = d && d->isFloating();
     if (aligned && !floating) {
         bandTop = mapFromGlobal(QPoint(0, topGlobal)).y();
         bandH = specHeight;
+        // Leave the area beside the derived plots (which cover the rest of
+        // the spectrogram) empty.
+        visibleBottom = std::min(height(), mapFromGlobal(QPoint(0, paneBottomGlobal)).y());
+        painter.setClipRect(0, 0, width(), visibleBottom);
     }
 
     // The PSD spans the full width (power on X). The frequency axis is omitted
@@ -141,9 +147,9 @@ void SpectrumView::paintEvent(QPaintEvent *)
     };
 
     if (scalesEnabled) {
-        // Keep the dB axis labels inside the widget even when the band reaches
-        // the bottom edge.
-        int dbLabelY = std::min(plotArea.bottom() + fm.ascent() + 2, height() - 2);
+        // Keep the dB axis labels in view even when the band reaches the bottom
+        // edge.
+        int dbLabelY = std::min(plotArea.bottom() + fm.ascent() + 2, visibleBottom - 2);
 
         // --- Power grid + bottom scale (dB) ---
         double dbStep = 10.0;

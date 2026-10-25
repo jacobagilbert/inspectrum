@@ -21,6 +21,7 @@
 
 #include <QGraphicsView>
 #include <QPaintEvent>
+#include <QScrollBar>
 
 #include "cursors.h"
 #include "inputsource.h"
@@ -39,9 +40,10 @@ public:
     void setSampleRate(double rate);
 
     // The spectrogram's current top edge (in global screen coordinates) and its
-    // pixel height. A docked SpectrumView calls this at paint time to align its
-    // frequency axis with the spectrogram. Returns false if unavailable.
-    bool spectrogramScreenBand(int &topGlobal, int &heightOut);
+    // pixel height, plus the bottom edge of its pane (below which the derived
+    // plots cover it). A docked SpectrumView calls this at paint time to align
+    // its frequency axis with the spectrogram. Returns false if unavailable.
+    bool spectrogramScreenBand(int &topGlobal, int &heightOut, int &paneBottomGlobal);
 
     // The crosshair's current y (in global screen coordinates) while it's shown
     // over the spectrogram, for a SpectrumView to continue its frequency line.
@@ -73,6 +75,7 @@ public slots:
     void setPowerMax(int power);
 
 protected:
+    void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void contextMenuEvent(QContextMenuEvent * event) override;
@@ -81,6 +84,8 @@ protected:
     void scrollContentsBy(int dx, int dy) override;
     bool viewportEvent(QEvent *event) override;
     void showEvent(QShowEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
+    void wheelEvent(QWheelEvent *event) override;
 
 private:
     Cursors cursors;
@@ -88,6 +93,11 @@ private:
     SpectrogramPlot *spectrogramPlot = nullptr;
     std::vector<std::unique_ptr<Plot>> plots;
     std::vector<SpectrumView*> spectrumPlots;  // owned by their QDockWidgets (MainWindow)
+    QScrollBar *spectrogramScrollBar;          // scrolls the spectrogram's pane
+    QScrollBar *derivedScrollBar;              // scrolls the derived plots' pane
+    QScrollBar *dragScrollBar = nullptr;       // pane bar a hand-drag is scrolling, if any
+    int dragY;                                 // where that drag began
+    int dragValue;                             // and the bar's value then
     range_t<size_t> viewRange;
     range_t<size_t> selectedSamples;
     int zoomPos;
@@ -118,7 +128,13 @@ private:
     void exportSamples(std::shared_ptr<AbstractSampleSource> src);
     template<typename SOURCETYPE> void exportSamples(std::shared_ptr<AbstractSampleSource> src);
     void writeSigMFMeta(const QString &dataFilename, const QString &datatype, double sampleRate, double centerFrequency);
-    int plotsHeight();
+    int derivedPlotsHeight();
+    int derivedPaneTop();
+    int derivedPaneHeight();
+    QRect plotRect(size_t index);
+    QRect paneRect(size_t index);
+    QScrollBar *paneScrollBar(int y);
+    void layoutScrollBars();
     size_t samplesPerColumn();
     void updateViewRange(bool reCenter);
     void updateView(bool reCenter = false, bool expanding = false);

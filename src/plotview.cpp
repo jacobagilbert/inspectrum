@@ -37,6 +37,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QMenu>
 #include <QMessageBox>
@@ -105,6 +106,23 @@ PlotView::PlotView(InputSource *input) : cursors(this), viewRange({0, 0})
     enableCursors(false);
     connect(&cursors, &Cursors::cursorsMoved, this, &PlotView::cursorsMoved);
 
+    // The spectrogram and the derived plots scroll vertically in their own
+    // panes, each with its own scroll bar (laid out by layoutScrollBars()),
+    // in place of the view's. They're children of the viewport, which also
+    // gives them the overlay style on macOS (fading out after a scroll).
+    setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    spectrogramScrollBar = new QScrollBar(Qt::Vertical, viewport());
+    derivedScrollBar = new QScrollBar(Qt::Vertical, viewport());
+    for (auto bar : {spectrogramScrollBar, derivedScrollBar}) {
+        bar->setSingleStep(20);
+        bar->hide();
+        // Shown while there's somewhere to scroll to; one that has faded out
+        // reappears when scrolled, as the view's own would.
+        auto show = [bar] { bar->setVisible(bar->maximum() > 0); };
+        connect(bar, &QScrollBar::rangeChanged, this, show);
+        connect(bar, &QScrollBar::valueChanged, this, [this, show] { show(); updateView(); });
+    }
+
     spectrogramPlot = new SpectrogramPlot(std::shared_ptr<SampleSource<std::complex<float>>>(mainSampleSource));
     auto tunerOutput = std::dynamic_pointer_cast<SampleSource<std::complex<float>>>(spectrogramPlot->output());
 
@@ -165,7 +183,7 @@ void PlotView::updateSpectrumPlots()
     }
 }
 
-bool PlotView::spectrogramScreenBand(int &topGlobal, int &heightOut)
+bool PlotView::spectrogramScreenBand(int &topGlobal, int &heightOut, int &paneBottomGlobal)
 {
     if (spectrogramPlot == nullptr || spectrogramPlot->height() <= 0)
         return false;
@@ -174,9 +192,9 @@ bool PlotView::spectrogramScreenBand(int &topGlobal, int &heightOut)
     // (matches paintEvent / emitPointerPosition). Reported in global screen
     // coordinates so a SpectrumView can map it into its own (docked or floating)
     // widget regardless of its title bar.
-    int spectrogramTop = -verticalScrollBar()->value();
-    topGlobal = viewport()->mapToGlobal(QPoint(0, spectrogramTop)).y();
+    topGlobal = viewport()->mapToGlobal(QPoint(0, plotRect(0).top())).y();
     heightOut = spectrogramPlot->height();
+    paneBottomGlobal = viewport()->mapToGlobal(QPoint(0, derivedPaneTop())).y();
     return true;
 }
 
@@ -186,11 +204,23 @@ bool PlotView::crosshairScreenY(int &yGlobal)
         return false;
     // Only while over the spectrogram, whose y-axis is frequency (as the
     // pointer readout).
-    int relY = pointerPos.y() + verticalScrollBar()->value();
-    if (relY < 0 || relY >= spectrogramPlot->height())
+    if (!paneRect(0).contains(pointerPos) || !plotRect(0).contains(pointerPos))
         return false;
     yGlobal = viewport()->mapToGlobal(pointerPos).y();
     return true;
+}
+
+void PlotView::mousePressEvent(QMouseEvent *event)
+{
+    // A hand-drag scrolls the pane it starts over vertically (the base class
+    // only pans time, as the view's own vertical scroll bar is unused).
+    dragScrollBar = nullptr;
+    if (event->button() == Qt::LeftButton && dragMode() == QGraphicsView::ScrollHandDrag) {
+        dragScrollBar = paneScrollBar(event->pos().y());
+        dragY = event->pos().y();
+        dragValue = dragScrollBar->value();
+    }
+    QGraphicsView::mousePressEvent(event);
 }
 
 void PlotView::mouseMoveEvent(QMouseEvent *event)
@@ -205,11 +235,14 @@ void PlotView::mouseMoveEvent(QMouseEvent *event)
         crosshairValid = true;
         viewport()->update();
     }
+    if (dragScrollBar != nullptr && (event->buttons() & Qt::LeftButton))
+        dragScrollBar->setValue(dragValue - (event->pos().y() - dragY));
     QGraphicsView::mouseMoveEvent(event);
 }
 
 void PlotView::mouseReleaseEvent(QMouseEvent *event)
 {
+    dragScrollBar = nullptr;
     // This is used to show the tooltip again on drag release if the mouse is
     // hovering over an annotation.
     updateAnnotationTooltip(event);
@@ -246,14 +279,11 @@ void PlotView::contextMenuEvent(QContextMenuEvent * event)
     // Get selected plot
     Plot *selectedPlot = nullptr;
     auto it = plots.begin();
-    int y = -verticalScrollBar()->value();
-    for (; it != plots.end(); it++) {
-        auto&& plot = *it;
-        if (range_t<int>{y, y + plot->height()}.contains(event->pos().y())) {
-            selectedPlot = plot.get();
+    for (size_t i = 0; it != plots.end(); it++, i++) {
+        if (paneRect(i).contains(event->pos()) && plotRect(i).contains(event->pos())) {
+            selectedPlot = it->get();
             break;
         }
-        y += plot->height();
     }
     if (selectedPlot == nullptr)
         return;
@@ -321,6 +351,9 @@ void PlotView::contextMenuEvent(QContextMenuEvent * event)
             action, &QAction::triggered,
             this, [=]() {
                 addPlot(plotCreator(src));
+                // Scroll the new plot (added at the bottom) into view.
+                updateView();
+                derivedScrollBar->setValue(derivedScrollBar->maximum());
             }
         );
         plotsMenu->addAction(action);
@@ -404,11 +437,9 @@ void PlotView::emitPointerPosition()
     // whose y-axis is frequency; derived plots use a different y-axis. The unit
     // is fixed from the sample rate (the full span shown).
     QString freqStr;
-    // The spectrogram is the first plot, drawn from this y (matches paintEvent).
-    int spectrogramTop = -verticalScrollBar()->value();
-    int relY = pointerPos.y() - spectrogramTop;
-    if (spectrogramPlot != nullptr && relY >= 0 && relY < spectrogramPlot->height()) {
-        double frequency = spectrogramPlot->frequencyAt(relY);
+    // The spectrogram is the first plot, visible only within its own pane.
+    if (paneRect(0).contains(pointerPos) && plotRect(0).contains(pointerPos)) {
+        double frequency = spectrogramPlot->frequencyAt(pointerPos.y() - plotRect(0).top());
         freqStr = QString::fromStdString(formatFixedSI(frequency, sampleRate, "Hz"));
     }
 
@@ -474,16 +505,29 @@ bool PlotView::viewportEvent(QEvent *event) {
         event->type() == QEvent::MouseButtonRelease) {
 
         QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        QPoint pos = mouseEvent->position().toPoint();
+#else
+        QPoint pos = mouseEvent->pos();
+#endif
 
-        int plotY = -verticalScrollBar()->value();
-        for (auto&& plot : plots) {
+        // Hovers and presses only reach a plot while the pointer is over its
+        // pane, so e.g. the tuner can't be grabbed through the derived plots
+        // covering the rest of the spectrogram. Other moves and releases always
+        // reach it, so a drag carries on outside the pane.
+        bool hoverOrPress = event->type() == QEvent::MouseButtonPress ||
+            (event->type() == QEvent::MouseMove && mouseEvent->buttons() == Qt::NoButton);
+
+        for (size_t i = 0; i < plots.size(); i++) {
+            auto&& plot = plots[i];
+            if (hoverOrPress && !paneRect(i).contains(pos)) {
+                plot->leaveEvent();
+                continue;
+            }
+            int plotY = plotRect(i).top();
             auto mouse_event = QMouseEvent(
                 event->type(),
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-                QPoint(mouseEvent->position().x(), mouseEvent->position().y() - plotY),
-#else
-                QPoint(mouseEvent->pos().x(), mouseEvent->pos().y() - plotY),
-#endif
+                QPoint(pos.x(), pos.y() - plotY),
                 mouseEvent->button(),
                 mouseEvent->buttons(),
                 QApplication::keyboardModifiers()
@@ -494,7 +538,6 @@ bool PlotView::viewportEvent(QEvent *event) {
             );
             if (result)
                 return true;
-            plotY += plot->height();
         }
 
         if (cursorsEnabled)
@@ -869,8 +912,8 @@ void PlotView::setCursorSegments(int segments)
 void PlotView::setFFTAndZoom(int size, int zoom)
 {
     auto oldSamplesPerColumn = samplesPerColumn();
-    float oldPlotCenter = (verticalScrollBar()->value() + viewport()->height() / 2.0) / plotsHeight();
-    if (verticalScrollBar()->maximum() == 0)
+    float oldPlotCenter = (spectrogramScrollBar->value() + derivedPaneTop() / 2.0) / spectrogramPlot->height();
+    if (spectrogramScrollBar->maximum() == 0)
         oldPlotCenter = 0.5;
 
     // Set new FFT size
@@ -892,9 +935,9 @@ void PlotView::setFFTAndZoom(int size, int zoom)
 
     updateView(true, samplesPerColumn() < oldSamplesPerColumn);
 
-    // maintain the relative position of the vertical scroll bar
-    if (verticalScrollBar()->maximum())
-        verticalScrollBar()->setValue((int )(oldPlotCenter * plotsHeight() - viewport()->height() / 2.0 + 0.5f));
+    // maintain the relative position of the spectrogram's vertical scroll bar
+    if (spectrogramScrollBar->maximum())
+        spectrogramScrollBar->setValue((int )(oldPlotCenter * spectrogramPlot->height() - derivedPaneTop() / 2.0 + 0.5f));
 }
 
 void PlotView::setPowerMin(int power)
@@ -923,13 +966,12 @@ void PlotView::paintEvent(QPaintEvent *event)
 
 
 #define PLOT_LAYER(paintFunc)                                                   \
-    {                                                                           \
-        int y = -verticalScrollBar()->value();                                  \
-        for (auto&& plot : plots) {                                             \
-            QRect rect = QRect(0, y, width(), plot->height());                  \
-            plot->paintFunc(painter, rect, viewRange);                          \
-            y += plot->height();                                                \
-        }                                                                       \
+    for (size_t i = 0; i < plots.size(); i++) {                                 \
+        QRect rect = plotRect(i);                                               \
+        painter.save();                                                         \
+        painter.setClipRect(paneRect(i));                                       \
+        plots[i]->paintFunc(painter, rect, viewRange);                          \
+        painter.restore();                                                      \
     }
 
     PLOT_LAYER(paintBack);
@@ -1035,13 +1077,81 @@ void PlotView::paintTimeScale(QPainter &painter, QRect &rect, range_t<size_t> sa
     painter.restore();
 }
 
-int PlotView::plotsHeight()
+int PlotView::derivedPlotsHeight()
 {
     int height = 0;
-    for (auto&& plot : plots) {
-        height += plot->height();
-    }
+    for (size_t i = 1; i < plots.size(); i++)
+        height += plots[i]->height();
     return height;
+}
+
+// The view is split into two panes, each scrolling vertically on its own: the
+// spectrogram on top and the derived plots below. The derived pane always has
+// room for at least one plot, so a tall spectrogram (large FFT) can't push
+// them all out of view.
+int PlotView::derivedPaneHeight()
+{
+    int tallest = 0;
+    for (size_t i = 1; i < plots.size(); i++)
+        tallest = std::max(tallest, plots[i]->height());
+
+    int viewHeight = viewport()->height();
+    int roomBelowSpectrogram = viewHeight - spectrogramPlot->height();
+    return std::min({derivedPlotsHeight(), std::max(tallest, roomBelowSpectrogram), viewHeight});
+}
+
+int PlotView::derivedPaneTop()
+{
+    // Without derived plots the spectrogram has the whole view. Otherwise their
+    // pane sits directly below the spectrogram while that fits, and is pushed
+    // up over it as far as needed when it doesn't.
+    int viewHeight = viewport()->height();
+    if (plots.size() < 2)
+        return viewHeight;
+    return std::max(0, std::min(spectrogramPlot->height(), viewHeight - derivedPaneHeight()));
+}
+
+// Where a plot is drawn in the viewport, scrolled within its pane.
+QRect PlotView::plotRect(size_t index)
+{
+    int y = -spectrogramScrollBar->value();
+    if (index > 0) {
+        y = derivedPaneTop() - derivedScrollBar->value();
+        for (size_t i = 1; i < index; i++)
+            y += plots[i]->height();
+    }
+    return QRect(0, y, width(), plots[index]->height());
+}
+
+// The part of the viewport a plot is visible in.
+QRect PlotView::paneRect(size_t index)
+{
+    int top = derivedPaneTop();
+    if (index == 0)
+        return QRect(0, 0, width(), top);
+    return QRect(0, top, width(), derivedPaneHeight());
+}
+
+// The scroll bar of the pane at a viewport y.
+QScrollBar *PlotView::paneScrollBar(int y)
+{
+    return (plots.size() > 1 && y >= derivedPaneTop()) ? derivedScrollBar : spectrogramScrollBar;
+}
+
+void PlotView::layoutScrollBars()
+{
+    // Each pane's scroll bar overlays the right edge of its pane, kept clear
+    // of the view's horizontal bar where that overlays the viewport's bottom
+    // edge (overlay style).
+    int barWidth = spectrogramScrollBar->sizeHint().width();
+    int x = viewport()->width() - barWidth;
+    int bottom = viewport()->height();
+    QWidget *hbarBox = horizontalScrollBar()->parentWidget();
+    if (hbarBox->isVisible())
+        bottom = std::min(bottom, viewport()->mapFromParent(hbarBox->geometry().topLeft()).y());
+    int top = std::min(derivedPaneTop(), bottom);
+    spectrogramScrollBar->setGeometry(x, 0, barWidth, top);
+    derivedScrollBar->setGeometry(x, top, barWidth, std::max(0, std::min(derivedPaneHeight(), bottom - top)));
 }
 
 void PlotView::resizeEvent(QResizeEvent * event)
@@ -1062,6 +1172,36 @@ void PlotView::scrollContentsBy(int dx, int dy)
 void PlotView::showEvent(QShowEvent *event)
 {
     // Intentionally left blank. See #171
+}
+
+void PlotView::keyPressEvent(QKeyEvent *event)
+{
+    // Vertical keys scroll the spectrogram's pane (the base class would scroll
+    // the view's unused bar); the rest, e.g. Left/Right, pan time as before.
+    switch (event->key()) {
+    case Qt::Key_Up:       spectrogramScrollBar->triggerAction(QAbstractSlider::SliderSingleStepSub); break;
+    case Qt::Key_Down:     spectrogramScrollBar->triggerAction(QAbstractSlider::SliderSingleStepAdd); break;
+    case Qt::Key_PageUp:   spectrogramScrollBar->triggerAction(QAbstractSlider::SliderPageStepSub); break;
+    case Qt::Key_PageDown: spectrogramScrollBar->triggerAction(QAbstractSlider::SliderPageStepAdd); break;
+    default:
+        QGraphicsView::keyPressEvent(event);
+    }
+}
+
+void PlotView::wheelEvent(QWheelEvent *event)
+{
+    // Vertical scrolling goes to the pane under the pointer; horizontal still
+    // pans time through the base class.
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+    int y = event->position().y();
+#else
+    int y = event->pos().y();
+#endif
+    if (qAbs(event->angleDelta().y()) >= qAbs(event->angleDelta().x())) {
+        QApplication::sendEvent(paneScrollBar(y), event);
+        return;
+    }
+    QGraphicsView::wheelEvent(event);
 }
 
 void PlotView::updateViewRange(bool reCenter)
@@ -1086,7 +1226,15 @@ void PlotView::updateView(bool reCenter, bool expanding)
         updateViewRange(reCenter);
     }
     horizontalScrollBar()->setMaximum(std::max(0, sampleToColumn(mainSampleSource->count()) - width()));
-    verticalScrollBar()->setMaximum(std::max(0, plotsHeight() - viewport()->height()));
+
+    // Each pane scrolls vertically over what it holds.
+    int paneTop = derivedPaneTop();
+    int paneHeight = derivedPaneHeight();
+    spectrogramScrollBar->setMaximum(std::max(0, spectrogramPlot->height() - paneTop));
+    spectrogramScrollBar->setPageStep(paneTop);
+    derivedScrollBar->setMaximum(std::max(0, derivedPlotsHeight() - paneHeight));
+    derivedScrollBar->setPageStep(paneHeight);
+    layoutScrollBars();
 
     if (expanding) {
         updateViewRange(reCenter);
