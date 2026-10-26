@@ -912,9 +912,22 @@ void PlotView::setCursorSegments(int segments)
 void PlotView::setFFTAndZoom(int size, int zoom)
 {
     auto oldSamplesPerColumn = samplesPerColumn();
-    float oldPlotCenter = (spectrogramScrollBar->value() + derivedPaneTop() / 2.0) / spectrogramPlot->height();
-    if (spectrogramScrollBar->maximum() == 0)
-        oldPlotCenter = 0.5;
+
+    // Keep a point fixed on screen across the change. With crosshairs shown
+    // that's the point under them: the sample under the pointer in time and,
+    // while it's over the spectrogram, the row under it in frequency.
+    // Otherwise it's the view's centre (or the sample a Ctrl+wheel zoom picked)
+    // and the centre of the spectrogram's pane, or DC while the whole
+    // spectrogram fits. Near the ends of the recording or band the scroll
+    // range clips this.
+    bool anchorOnCrosshair = crosshairsEnabled && crosshairValid;
+    size_t anchorSample = columnToSample(horizontalScrollBar()->value() + pointerPos.x());
+    int crosshairGlobalY;
+    bool anchorOnPointer = crosshairScreenY(crosshairGlobalY);
+    int anchorY = anchorOnPointer ? pointerPos.y() : derivedPaneTop() / 2;
+    double anchorFrac = 0.5;
+    if (anchorOnPointer || spectrogramScrollBar->maximum() > 0)
+        anchorFrac = (spectrogramScrollBar->value() + anchorY) / (double)spectrogramPlot->height();
 
     // Set new FFT size
     fftSize = size;
@@ -935,9 +948,13 @@ void PlotView::setFFTAndZoom(int size, int zoom)
 
     updateView(true, samplesPerColumn() < oldSamplesPerColumn);
 
-    // maintain the relative position of the spectrogram's vertical scroll bar
+    // maintain the anchored sample and row (set here rather than through
+    // zoomSample/zoomPos, which the vertical scroll bar updates in updateView()
+    // can reset to the centre on the way)
+    if (anchorOnCrosshair)
+        horizontalScrollBar()->setValue(sampleToColumn(anchorSample) - pointerPos.x());
     if (spectrogramScrollBar->maximum())
-        spectrogramScrollBar->setValue((int )(oldPlotCenter * spectrogramPlot->height() - derivedPaneTop() / 2.0 + 0.5f));
+        spectrogramScrollBar->setValue((int)(anchorFrac * spectrogramPlot->height() - anchorY + 0.5));
 }
 
 void PlotView::setPowerMin(int power)
